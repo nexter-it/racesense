@@ -1,0 +1,51 @@
+[
+  {
+    "id": "mhdlns3evig103",
+    "name": "Pierpaolo",
+    "surname": "Cavalli",
+    "team": "Nexter Racing",
+    "championships": [],
+    "photoDriverUrl": "/uploads/1761839351071_le363i_fernando-alonso-alpine-f1-1.jpg",
+    "photoTeamUrl": "/uploads/1761839351431_qa274a_nexter-logo.png",
+    "createdAt": "2025-10-30T15:49:11.546Z"
+  },
+  {
+    "id": "mhdl0vm0225lyv",
+    "name": "Dario",
+    "surname": "Mantovani",
+    "team": "Futura Corse",
+    "championships": [
+      "spint",
+      "iron inx"
+    ],
+    "photoDriverUrl": "/uploads/1761838282956_gdx6sk_images_(1).jpeg",
+    "photoTeamUrl": "/uploads/1761838283004_nkydwv_images.png",
+    "createdAt": "2025-10-30T15:31:23.016Z"
+  },
+  {
+    "id": "mhdi92khd2giiw",
+    "name": "Simone",
+    "surname": "Nicolini",
+    "team": "Nexter Racing",
+    "championships": [
+      "iron inx"
+    ],
+    "photoDriverUrl": "/uploads/1761833625621_w6wedt_2025_Japan_GP_-_Ferrari_-_Lewis_Hamilton_-_Fanzone_Stage_(cropped).jpg",
+    "photoTeamUrl": "/uploads/1761833626413_jzyaz1_nexter-logo.png",
+    "createdAt": "2025-10-30T14:13:46.433Z"
+  },
+  {
+    "id": "mhb0fal8xo99wx",
+    "name": "Umberto",
+    "surname": "Pollarini",
+    "team": "Nexter Racing",
+    "championships": [
+      "iron",
+      "iron inx",
+      "spint"
+    ],
+    "photoDriverUrl": "/uploads/1761682750673_6yjn0p_Screenshot_2025-10-28_alle_21.18.50.png",
+    "photoTeamUrl": "/uploads/1761682751322_9i5av2_Screenshot_2025-10-28_alle_21.18.38.png",
+    "createdAt": "2025-10-28T20:19:11.324Z"
+  }
+]

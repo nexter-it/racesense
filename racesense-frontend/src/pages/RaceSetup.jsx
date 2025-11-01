@@ -1,3 +1,4 @@
+// src/pages/RaceSetup.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import '../App.css';
 
@@ -13,36 +14,34 @@ export default function RaceSetup({ onStartRace }) {
 
   const [totalLaps, setTotalLaps] = useState(10);
 
-  // Device attivi e assegnazioni (pilotId SALVATO COME STRINGA)
   const [activeDevices, setActiveDevices] = useState({});
   const [deviceAssignments, setDeviceAssignments] = useState({});
+
+  // 🔔 snapshot se gara attiva: banner immediato in /race
+  const [raceInProgress, setRaceInProgress] = useState(null);
 
   const wsRef = useRef(null);
   const deviceTimeoutRef = useRef({});
 
-  // --- Carica circuiti e piloti ---
+  // --- bootstrap dati + stato gara attuale ---
   useEffect(() => {
-    fetch(`${API_BASE}/api/circuits`)
-      .then(r => r.json())
-      .then(setCircuits)
-      .catch(e => console.error('Errore caricamento circuiti:', e));
+    fetch(`${API_BASE}/api/circuits`).then(r => r.json()).then(setCircuits).catch(console.error);
+    fetch(`${API_BASE}/api/pilots`).then(r => r.json()).then(setPilots).catch(console.error);
 
-    fetch(`${API_BASE}/api/pilots`)
+    // 👉 check immediato: c’è una gara già attiva?
+    fetch(`${API_BASE}/api/race/state`)
       .then(r => r.json())
-      .then(setPilots)
-      .catch(e => console.error('Errore caricamento piloti:', e));
+      .then(s => { if (s?.type === 'race_snapshot') setRaceInProgress(s); })
+      .catch(() => { });
   }, []);
 
-  // --- Dettagli circuito selezionato ---
+  // --- dettagli circuito selezionato ---
   useEffect(() => {
     if (!selectedCircuit) return;
-    fetch(`${API_BASE}/api/circuits/${selectedCircuit}`)
-      .then(r => r.json())
-      .then(setCircuitData)
-      .catch(e => console.error('Errore caricamento circuito:', e));
+    fetch(`${API_BASE}/api/circuits/${selectedCircuit}`).then(r => r.json()).then(setCircuitData).catch(console.error);
   }, [selectedCircuit]);
 
-  // --- WebSocket per device attivi ---
+  // --- WebSocket: device liberi + stato gara attuale (banner) ---
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
@@ -51,72 +50,93 @@ export default function RaceSetup({ onStartRace }) {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.mac && data.lat && data.lon) {
-          const mac = String(data.mac);
-          const lat = Number(data.lat);
-          const lon = Number(data.lon);
-          const speed = Number(data.speedKmh || 0);
 
+        // Se la gara è attiva sul server, mostra banner immediatamente
+        if (data?.type === 'race_snapshot') {
+          setRaceInProgress(data);
+          return;
+        }
+        if (data?.type === 'race_inactive') {
+          setRaceInProgress(null);
+          return;
+        }
+
+        // gestione preview dei device “liberi” (quando non c’è gara)
+        if (data?.type === 'gps_raw' && data?.data?.mac && data?.data?.lat && data?.data?.lon) {
+          const { mac, lat, lon, speedKmh } = data.data;
+          const speed = Number(speedKmh || 0);
           setActiveDevices(prev => ({
             ...prev,
-            [mac]: { lastSeen: Date.now(), lat, lon, speed, data }
+            [mac]: { lastSeen: Date.now(), lat: Number(lat), lon: Number(lon), speed }
           }));
-
           if (deviceTimeoutRef.current[mac]) clearTimeout(deviceTimeoutRef.current[mac]);
           deviceTimeoutRef.current[mac] = setTimeout(() => {
-            setActiveDevices(prev => {
-              const copy = { ...prev };
-              delete copy[mac];
-              return copy;
-            });
+            setActiveDevices(prev => { const copy = { ...prev }; delete copy[mac]; return copy; });
           }, 6000);
         }
-      } catch (err) {
-        console.error('Errore parsing GPS:', err);
-      }
+      } catch { }
     };
-    ws.onerror = (e) => console.error('[RaceSetup] WS errore', e);
+    ws.onerror = e => console.error('[RaceSetup] WS errore', e);
     ws.onclose = () => console.log('[RaceSetup] WS chiuso');
 
     return () => {
       Object.values(deviceTimeoutRef.current).forEach(clearTimeout);
-      ws.close();
+      try { ws.close(); } catch { }
     };
   }, []);
 
-  // --- Assegna pilota: mantengo SEMPRE stringa ---
   const assignPilotToDevice = (mac, pilotIdString) => {
     setDeviceAssignments(prev => ({ ...prev, [mac]: pilotIdString }));
   };
 
-  // --- Avvio gara ---
-  const handleStart = () => {
-    if (!selectedCircuit) return alert('ATTENZIONE: seleziona un circuito!');
-    const assignedDevices = Object.keys(deviceAssignments).filter(mac => deviceAssignments[mac]);
-    if (assignedDevices.length === 0) return alert('ATTENZIONE: assegna almeno un pilota a un device attivo!');
+  // START: se già attiva mostro banner (che c’è già); se non attiva, avvio.
+  const handleStart = async () => {
+    try {
+      const s = await fetch(`${API_BASE}/api/race/state`).then(r => r.json());
+      if (s?.type === 'race_snapshot') { setRaceInProgress(s); return; }
 
-    const selectedPilotIds = Object.values(deviceAssignments).filter(Boolean); // stringhe
-    const selectedPilots = pilots.filter(p => selectedPilotIds.includes(String(p.id)));
+      if (!selectedCircuit) return alert('ATTENZIONE: seleziona un circuito!');
+      const assignedDevices = Object.keys(deviceAssignments).filter(mac => deviceAssignments[mac]);
+      if (assignedDevices.length === 0) return alert('ATTENZIONE: assegna almeno un pilota a un device attivo!');
 
-    const raceConfig = {
-      circuit: selectedCircuit,
-      circuitData,
-      totalLaps,
-      assignments: deviceAssignments, // { MAC: 'pilotId' }
-      pilots: selectedPilots,
-      activeDevices: assignedDevices
-    };
-    onStartRace(raceConfig);
+      const body = { circuitId: selectedCircuit, totalLaps, assignments: deviceAssignments, pilots };
+      const r = await fetch(`${API_BASE}/api/race/start`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error || 'Errore avvio gara');
+
+      onStartRace({ circuit: selectedCircuit, circuitData, totalLaps, assignments: deviceAssignments, pilots });
+    } catch (e) {
+      console.error(e);
+      alert('Errore nell’avvio della gara: ' + e.message);
+    }
+  };
+
+  const goToExistingRace = async () => {
+    try {
+      const cid = raceInProgress?.circuit?.id;
+      let cData = circuitData;
+      if (cid && (!circuitData || selectedCircuit !== cid)) {
+        cData = await fetch(`${API_BASE}/api/circuits/${cid}`).then(r => r.json()).catch(() => null);
+      }
+      onStartRace({
+        circuit: cid || selectedCircuit,
+        circuitData: cData || circuitData,
+        totalLaps: raceInProgress?.totalLaps ?? totalLaps,
+        assignments: {},
+        pilots
+      });
+    } catch (e) {
+      console.error(e);
+      onStartRace({ circuit: selectedCircuit, circuitData, totalLaps, assignments: {}, pilots });
+    }
   };
 
   const activeMacs = Object.keys(activeDevices);
   const assignedCount = Object.values(deviceAssignments).filter(Boolean).length;
-  const canStart = Boolean(selectedCircuit) && assignedCount > 0;
-
-  const selectedStyle = {
-    borderColor: 'rgba(192, 255, 3, 0.55)',
-    boxShadow: '0 0 24px rgba(192,255,3,0.25)'
-  };
+  const canStart = true;
+  const selectedStyle = { borderColor: 'rgba(192, 255, 3, 0.55)', boxShadow: '0 0 24px rgba(192,255,3,0.25)' };
 
   return (
     <div className="main small-top">
@@ -125,21 +145,27 @@ export default function RaceSetup({ onStartRace }) {
         Seleziona il circuito, assegna i piloti ai device e imposta i giri.
       </p>
 
-      {/* Circuito */}
+      {/* 🔔 Banner “gara in corso” — SUBITO alla pagina /race */}
+      {raceInProgress && (
+        <div className="pilot-form" style={{ color: 'white', borderColor: 'rgba(241,196,15,.4)', background: 'rgba(241,196,15,.08)' }}>
+          <b>È già in corso una gara</b> sul circuito <b>{raceInProgress.circuit?.name || raceInProgress.circuit?.id}</b>.
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end', flexDirection: 'row-reverse' }}>
+            <button className="btn-ghost" onClick={() => setRaceInProgress(null)}>Chiudi avviso</button>
+            <button className="btn-primary" onClick={goToExistingRace}>Visualizza gara</button>
+          </div>
+        </div>
+      )}
+
+      {/* Circuiti */}
       <section style={{ marginBottom: 28 }}>
         <h3 className="section-title">Circuito</h3>
         <div className="actions" style={{ marginBottom: 16 }}>
           {circuits.map(c => {
             const isSelected = selectedCircuit === c.id;
             return (
-              <div
-                key={c.id}
-                className="action-card"
-                role="button"
-                tabIndex={0}
+              <div key={c.id} className="action-card" role="button" tabIndex={0}
                 onClick={() => setSelectedCircuit(c.id)}
-                style={isSelected ? selectedStyle : undefined}
-              >
+                style={isSelected ? selectedStyle : undefined}>
                 <div className="action-icon">
                   <svg viewBox="0 0 24 24" className="icon" aria-hidden="true">
                     <path d="M4 12a8 8 0 1 1 16 0v3a3 3 0 0 1-3 3h-2a1 1 0 1 1 0-2h2a1 1 0 0 0 1-1v-3a6 6 0 1 0-12 0v3a1 1 0 0 0 1 1h2a1 1 0 1 1 0 2H7a3 3 0 0 1-3-3v-3z" fill="currentColor" />
@@ -152,26 +178,9 @@ export default function RaceSetup({ onStartRace }) {
             );
           })}
         </div>
-
-        {/* {circuitData && (
-          <div className="pilot-form" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-            <div>
-              <div className="muted">Lunghezza</div>
-              <div><strong>{circuitData.stats?.lengthMeters?.toFixed(0) ?? '—'} m</strong></div>
-            </div>
-            <div>
-              <div className="muted">Settori</div>
-              <div><strong>{circuitData.sectors?.length ?? 0}</strong></div>
-            </div>
-            <div>
-              <div className="muted">Larghezza</div>
-              <div><strong>{circuitData.params?.widthMeters ?? 6} m</strong></div>
-            </div>
-          </div>
-        )} */}
       </section>
 
-      {/* Device & Assegnazioni */}
+      {/* Device liberi */}
       <section style={{ marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           <h3 className="section-title" style={{ margin: 0 }}>Device attivi</h3>
@@ -189,96 +198,43 @@ export default function RaceSetup({ onStartRace }) {
             </div>
           </div>
         ) : (
-          <div className="pilots-grid">{/* 3 colonne su desktop */}
+          <div className="pilots-grid">
             {activeMacs.map(mac => {
-              const device = activeDevices[mac];
               const assignedPilotId = deviceAssignments[mac] ?? '';
               const assignedPilot = pilots.find(p => String(p.id) === assignedPilotId);
-
               const pilotPhotoUrl = assignedPilot?.photoDriverUrl ? `${API_BASE}${assignedPilot.photoDriverUrl}` : null;
               const teamLogoUrl = assignedPilot?.photoTeamUrl ? `${API_BASE}${assignedPilot.photoTeamUrl}` : null;
 
               return (
-                <div
-                  key={mac}
-                  className="pilot-card"
-                  style={{
-                    ...(assignedPilotId ? selectedStyle : {}),
-                    gridTemplateColumns: '140px 1fr' // 2 colonne: immagini + contenuto
-                  }}
-                >
-                  {/* Colonna sinistra: foto pilota (tall) + logo team (small) */}
+                <div key={mac} className="pilot-card" style={{ ...(assignedPilotId ? selectedStyle : {}), gridTemplateColumns: '140px 1fr' }}>
                   <div className="pilot-photos col">
                     <div className="photo tall media-box">
-                      {pilotPhotoUrl ? (
-                        <img src={pilotPhotoUrl} alt={`${assignedPilot.name} ${assignedPilot.surname}`} className="pilot-photo-img" />
-                      ) : (
-                        <div className="photo-placeholder">
-                          <div style={{ fontWeight: 700, color: 'var(--brand)' }}>Seleziona pilota</div>
-                          <div className="muted" style={{ marginTop: 6 }}>Foto pilota</div>
-                        </div>
-                      )}
+                      {pilotPhotoUrl ? <img src={pilotPhotoUrl} alt={`${assignedPilot?.name} ${assignedPilot?.surname}`} className="pilot-photo-img" /> :
+                        <div className="photo-placeholder"><div style={{ fontWeight: 700, color: 'var(--brand)' }}>Seleziona pilota</div><div className="muted" style={{ marginTop: 6 }}>Foto pilota</div></div>}
                     </div>
-
                     <div className="photo small media-box team-logo-box">
-                      {teamLogoUrl ? (
-                        <img src={teamLogoUrl} alt={assignedPilot.team} className="team-logo-img" />
-                      ) : (
-                        <div className="photo-placeholder">
-                          <div className="muted">Logo team</div>
-                        </div>
-                      )}
+                      {teamLogoUrl ? <img src={teamLogoUrl} alt={assignedPilot?.team} className="team-logo-img" /> :
+                        <div className="photo-placeholder"><div className="muted">Logo team</div></div>}
                     </div>
                   </div>
 
-                  {/* Colonna destra: info e selezione */}
                   <div className="pilot-info wide">
                     <div className="pilot-name big">Assegnazione pilota</div>
-
-                    {/* Mostra il MAC al posto della frase lunga */}
-                    <div className="pilot-team big muted" style={{ marginBottom: 12 }}>
-                       {mac}
-                    </div>
-
+                    <div className="pilot-team big muted" style={{ marginBottom: 12 }}>{mac}</div>
                     <div className="form-row" style={{ gridTemplateColumns: '1fr' }}>
                       <div className="form-col">
                         <label className="muted">Pilota</label>
-                        <select
-                          className="input"
-                          value={assignedPilotId}
-                          onChange={(e) => assignPilotToDevice(mac, e.target.value)}
-                        >
+                        <select className="input" value={assignedPilotId} onChange={(e) => assignPilotToDevice(mac, e.target.value)}>
                           <option value="">-- Seleziona --</option>
-                          {pilots.map(p => (
-                            <option key={p.id} value={String(p.id)}>
-                              {p.name} {p.surname} ({p.team})
-                            </option>
-                          ))}
+                          {pilots.map(p => <option key={p.id} value={String(p.id)}>{p.name} {p.surname} ({p.team})</option>)}
                         </select>
                       </div>
                     </div>
-
-                    {/* Dati selezionati: SOLO team */}
-                    {assignedPilot && (
-                      <div className="pilot-chips" style={{ marginTop: 10 }}>
-                        <span className="chip readonly" title="Team">{assignedPilot.team}</span>
+                    {assignedPilot ? (
+                      <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+                        <button className="btn-danger" onClick={() => assignPilotToDevice(mac, '')}>Rimuovi</button>
                       </div>
-                    )}
-
-                    {/* Zona azioni in basso: se assegnato -> Rimuovi, altrimenti "non assegnato" */}
-                    <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
-                      {assignedPilot ? (
-                        <button
-                          className="btn-danger"
-                          onClick={() => assignPilotToDevice(mac, '')}
-                          title="Rimuovi assegnazione"
-                        >
-                          Rimuovi
-                        </button>
-                      ) : (
-                        <span className="muted">non assegnato</span>
-                      )}
-                    </div>
+                    ) : <span className="muted">non assegnato</span>}
                   </div>
                 </div>
               );
@@ -287,7 +243,7 @@ export default function RaceSetup({ onStartRace }) {
         )}
       </section>
 
-      {/* Numero giri */}
+      {/* Giri */}
       <section style={{ marginBottom: 28 }}>
         <h3 className="section-title">Numero giri</h3>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
@@ -302,16 +258,13 @@ export default function RaceSetup({ onStartRace }) {
         </div>
       </section>
 
-      {/* CTA Avvio */}
+      {/* CTA */}
       <div className="cta-wrapper" style={{ marginTop: 10 }}>
-        <button className="big-cta" disabled={!canStart} onClick={handleStart} aria-label="Avvia gara">
-          START RACE
-        </button>
+        <button className="big-cta" onClick={handleStart} aria-label="Avvia/Mostra gara">START RACE</button>
         <p className="cta-hint">
-          {canStart
-            ? `${assignedCount} ${assignedCount === 1 ? 'pilota' : 'piloti'} × ${totalLaps} giri` +
-              (selectedCircuit ? ` • circuito #${selectedCircuit}` : '')
-            : 'Seleziona circuito e assegna almeno un pilota a un device'}
+          {selectedCircuit && Object.values(deviceAssignments).filter(Boolean).length > 0
+            ? `${Object.values(deviceAssignments).filter(Boolean).length} ${Object.values(deviceAssignments).filter(Boolean).length === 1 ? 'pilota' : 'piloti'} × ${totalLaps} giri • circuito #${selectedCircuit}`
+            : 'Se la gara è già in corso potrai visualizzarla subito.'}
         </p>
       </div>
     </div>

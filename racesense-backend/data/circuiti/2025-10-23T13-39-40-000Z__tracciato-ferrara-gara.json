@@ -1,13 +1,13 @@
 {
     "id": "2025-10-23T13-39-40-000Z__tracciato-ferrara-gara",
-    "name": "tracciato ferrara (raffinato per gara)",
+    "name": "Extrema Kart",
     "createdAt": "2025-10-23T13:39:40Z",
     "meta": {
         "points": 761,
         "sectors": 761
     },
     "params": {
-        "widthMeters": 6,
+        "widthMeters": 10,
         "spacingMeters": 1,
         "minQual": 3
     },

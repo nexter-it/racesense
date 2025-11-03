@@ -402,47 +402,6 @@
   animation: slideIn 0.3s ease;
 }
 
-/* Animazioni sorpasso - fluide e lente stile F1 */
-.leaderboard-item.overtaking {
-  animation: moveUp 2s ease-in-out;
-  z-index: 10;
-}
-
-.leaderboard-item.being-overtaken {
-  animation: moveDown 2s ease-in-out;
-  z-index: 5;
-}
-
-@keyframes moveUp {
-  0% {
-    transform: translateY(0);
-  }
-  40% {
-    transform: translateY(80px);
-  }
-  60% {
-    transform: translateY(80px);
-  }
-  100% {
-    transform: translateY(0);
-  }
-}
-
-@keyframes moveDown {
-  0% {
-    transform: translateY(0);
-  }
-  40% {
-    transform: translateY(-80px);
-  }
-  60% {
-    transform: translateY(-80px);
-  }
-  100% {
-    transform: translateY(0);
-  }
-}
-
 .leaderboard-item.battle {
   background: linear-gradient(90deg, rgba(225,6,0,0.1) 0%, rgba(255,255,255,0.05) 100%);
   border-left: 3px solid #e10600;

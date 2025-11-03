@@ -22,26 +22,23 @@ export default function PilotLive() {
     const [totalLaps, setTotalLaps] = useState(0);
     const [driver, setDriver] = useState(null);
 
-    // Colore deterministico dal nome+cognome (fallback: MAC)
-    const color = useMemo(
-        () => colorFromName(driver?.fullName || driver?.tag || mac),
-        [driver?.fullName, driver?.tag, mac]
-    );
+    const color = useMemo(() => colorFromName(driver?.fullName || driver?.tag || mac), [driver?.fullName, driver?.tag, mac]);
 
-    // trail più corta
+    // trail
     const trailsRef = useRef([]);
     const TRAIL_MAX_AGE_MS = 20000;
     const TRAIL_MAX_LEN = 110;
 
-    // canvas refs
+    // canvas & interazione
     const canvasRef = useRef(null);
     const animFrameRef = useRef(null);
     const zoomRef = useRef(1);
     const panRef = useRef({ x: 0, y: 0 });
-    const isDraggingRef = useRef(false);
-    const lastMouseRef = useRef({ x: 0, y: 0 });
 
-    // Bootstrap stato pilota + circuito
+    // pinch/pan
+    const pointersRef = useRef(new Map());
+    const pinchStartRef = useRef({ dist: 0, zoom: 1, last: { x: 0, y: 0 } });
+
     useEffect(() => {
         let cancelled = false;
         const load = async () => {
@@ -82,7 +79,6 @@ export default function PilotLive() {
         return () => { cancelled = true; };
     }, [mac]);
 
-    // WebSocket: race_init + snapshot
     useEffect(() => {
         const ws = new WebSocket(WS_URL);
         ws.onmessage = async (event) => {
@@ -130,13 +126,14 @@ export default function PilotLive() {
         return () => { try { ws.close(); } catch { } };
     }, [mac, circuit?.sectors?.length]);
 
-    // Canvas rendering
     useEffect(() => {
         if (!circuit || !Array.isArray(circuit.sectors) || circuit.sectors.length === 0 || !canvasRef.current) return;
 
         const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { alpha: false });
         const dpr = window.devicePixelRatio || 1;
+
+        canvas.style.touchAction = 'none'; // important per iOS/Android
 
         const ensureSize = () => {
             const w = canvas.parentElement.clientWidth || 600;
@@ -150,17 +147,7 @@ export default function PilotLive() {
         ensureSize();
         window.addEventListener('resize', onResize);
 
-        const wheel = (e) => { e.preventDefault(); zoomRef.current = Math.max(0.5, Math.min(5, zoomRef.current * (e.deltaY > 0 ? 0.9 : 1.1))); };
-        const mousedown = (e) => { isDraggingRef.current = true; lastMouseRef.current = { x: e.clientX, y: e.clientY }; canvas.style.cursor = 'grabbing'; };
-        const mousemove = (e) => { if (!isDraggingRef.current) return; panRef.current.x += e.clientX - lastMouseRef.current.x; panRef.current.y += e.clientY - lastMouseRef.current.y; lastMouseRef.current = { x: e.clientX, y: e.clientY }; };
-        const mouseup = () => { isDraggingRef.current = false; canvas.style.cursor = 'grab'; };
-        canvas.addEventListener('wheel', wheel, { passive: false });
-        canvas.addEventListener('mousedown', mousedown);
-        canvas.addEventListener('mousemove', mousemove);
-        canvas.addEventListener('mouseup', mouseup);
-        canvas.addEventListener('mouseleave', mouseup);
-        canvas.style.cursor = 'grab';
-
+        // proiezione
         const lats = circuit.sectors.map(s => s.lat);
         const lons = circuit.sectors.map(s => s.lon);
         const minLat = Math.min(...lats), maxLat = Math.max(...lats);
@@ -182,24 +169,82 @@ export default function PilotLive() {
             return { x: w / 2 + dx * scale + panRef.current.x, y: h / 2 - dy * scale + panRef.current.y, scale };
         };
 
+        // wheel desktop
+        const onWheel = (e) => {
+            e.preventDefault();
+            const dir = e.deltaY > 0 ? 0.9 : 1.1;
+            zoomRef.current = Math.max(0.5, Math.min(6, zoomRef.current * dir));
+        };
+        canvas.addEventListener('wheel', onWheel, { passive: false });
+
+        // pointer touch (pinch/pan)
+        const onPointerDown = (ev) => {
+            canvas.setPointerCapture?.(ev.pointerId);
+            pointersRef.current.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+            if (pointersRef.current.size === 1) {
+                pinchStartRef.current.last = { x: ev.clientX, y: ev.clientY };
+            } else if (pointersRef.current.size === 2) {
+                const pts = Array.from(pointersRef.current.values());
+                const dx = pts[0].x - pts[1].x;
+                const dy = pts[0].y - pts[1].y;
+                pinchStartRef.current.dist = Math.hypot(dx, dy);
+                pinchStartRef.current.zoom = zoomRef.current;
+            }
+        };
+        const onPointerMove = (ev) => {
+            if (!pointersRef.current.has(ev.pointerId)) return;
+            pointersRef.current.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+
+            if (pointersRef.current.size === 1) {
+                const p = pointersRef.current.get(ev.pointerId);
+                panRef.current.x += p.x - pinchStartRef.current.last.x;
+                panRef.current.y += p.y - pinchStartRef.current.last.y;
+                pinchStartRef.current.last = { ...p };
+            } else if (pointersRef.current.size === 2) {
+                const pts = Array.from(pointersRef.current.values());
+                const dx = pts[0].x - pts[1].x;
+                const dy = pts[0].y - pts[1].y;
+                const dist = Math.hypot(dx, dy);
+                if (pinchStartRef.current.dist > 0) {
+                    const ratio = dist / pinchStartRef.current.dist;
+                    zoomRef.current = Math.max(0.5, Math.min(6, pinchStartRef.current.zoom * ratio));
+                }
+            }
+            ev.preventDefault();
+        };
+        const onPointerUp = (ev) => {
+            canvas.releasePointerCapture?.(ev.pointerId);
+            pointersRef.current.delete(ev.pointerId);
+            if (pointersRef.current.size < 2) {
+                pinchStartRef.current.dist = 0;
+            }
+        };
+        canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
+        canvas.addEventListener('pointermove', onPointerMove, { passive: false });
+        canvas.addEventListener('pointerup', onPointerUp);
+        canvas.addEventListener('pointercancel', onPointerUp);
+        canvas.addEventListener('pointerleave', onPointerUp);
+
+        // render
         const draw = () => {
             ensureSize();
             const w = canvas.width / dpr, h = canvas.height / dpr;
-            ctx.clearRect(0, 0, w, h);
-            ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, w, h);
+
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, 0, w, h);
 
             const widthMeters = circuit?.params?.widthMeters ?? 6;
             const pts = circuit.sectors.map(s => project(s.lat, s.lon));
             const scale = pts[0]?.scale || 1;
             const trackPx = Math.max(6, widthMeters * scale);
 
-            // bordo e asfalto
+            // pista
             ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = trackPx + 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
             ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
             ctx.strokeStyle = 'rgba(80,84,90,0.95)'; ctx.lineWidth = trackPx;
             ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
 
-            // linea start
+            // start
             if (pts.length > 1) {
                 const s0 = pts[0], s1 = pts[1]; const ang = Math.atan2(s1.y - s0.y, s1.x - s0.x);
                 ctx.save(); ctx.translate(s0.x, s0.y); ctx.rotate(ang);
@@ -207,7 +252,7 @@ export default function PilotLive() {
                 ctx.beginPath(); ctx.moveTo(0, -trackPx * 0.5); ctx.lineTo(0, trackPx * 0.5); ctx.stroke(); ctx.restore();
             }
 
-            // trail singolo
+            // trail
             const now = Date.now();
             trailsRef.current = (trailsRef.current || []).filter(p => now - p.ts <= TRAIL_MAX_AGE_MS).slice(-TRAIL_MAX_LEN);
             const trail = trailsRef.current || [];
@@ -228,7 +273,7 @@ export default function PilotLive() {
                 }
             }
 
-            // dot pilota
+            // dot
             if (driver) {
                 const p = project(driver.lat, driver.lon);
                 const r = Math.max(6, trackPx * 0.2);
@@ -252,37 +297,37 @@ export default function PilotLive() {
 
         return () => {
             window.removeEventListener('resize', onResize);
-            canvas.removeEventListener('wheel', wheel);
-            canvas.removeEventListener('mousedown', mousedown);
-            canvas.removeEventListener('mousemove', mousemove);
-            canvas.removeEventListener('mouseup', mouseup);
-            canvas.removeEventListener('mouseleave', mouseup);
+            canvas.removeEventListener('wheel', onWheel);
+            canvas.removeEventListener('pointerdown', onPointerDown);
+            canvas.removeEventListener('pointermove', onPointerMove);
+            canvas.removeEventListener('pointerup', onPointerUp);
+            canvas.removeEventListener('pointercancel', onPointerUp);
+            canvas.removeEventListener('pointerleave', onPointerUp);
             if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
         };
     }, [circuit, driver, color]);
 
     return (
         <div className="main small-top">
-            <div className="rs-live-topbar">
-                <div className="rs-live-left">
-                    <span className="chip readonly">PILOTA</span>
-                    <span className="chip readonly" style={{ fontWeight: 800 }}>{driver?.tag || mac}</span>
-                    <span className="chip readonly">{driver?.fullName || '—'}</span>
-                    <span className="chip readonly">{totalLaps} giri</span>
-                    <span className="chip readonly" style={{ fontWeight: 900 }}>{raceStatus}</span>
-                </div>
-                <div className="rs-live-right">
-                    <span className="chip readonly">{circuit?.name || circuit?.id || 'Circuito'}</span>
-                    {circuit?.stats?.lengthMeters && <span className="chip readonly">{circuit.stats.lengthMeters.toFixed(0)} m</span>}
-                    {circuit?.params?.widthMeters && <span className="chip readonly">{circuit.params.widthMeters} m larghezza</span>}
-                    <button className="btn-ghost" onClick={() => navigate('/race')}>⬅ Torna alla gara</button>
+            {/* TOP BAR — senza bordi + riga scrollabile */}
+            <div className="rs-live-topbar rs-live-topbar--glass">
+                <div className="rs-chip-row">
+                    <span className="chip readonly pill">PILOTA</span>
+                    <span className="chip readonly pill" style={{ fontWeight: 800 }}>{driver?.tag || mac}</span>
+                    <span className="chip readonly pill">{driver?.fullName || '—'}</span>
+                    <span className="chip readonly pill">{totalLaps} giri</span>
+                    <span className="chip readonly pill" style={{ background: 'rgba(21,193,48,.22)', color: '#dfffe9', fontWeight: 900 }}>{raceStatus}</span>
+                    <span className="chip readonly pill">{circuit?.name || circuit?.id || 'Circuito'}</span>
+                    {circuit?.stats?.lengthMeters && <span className="chip readonly pill">{circuit.stats.lengthMeters.toFixed(0)} m</span>}
+                    {circuit?.params?.widthMeters && <span className="chip readonly pill">{circuit.params.widthMeters} m larghezza</span>}
+                    <button className="btn-ghost" onClick={() => navigate('/race')} style={{ whiteSpace: 'nowrap' }}>⬅ Torna alla gara</button>
                 </div>
             </div>
 
             <div className="rs-live-grid" style={{ gridTemplateColumns: '1fr 420px' }}>
                 <div className="track-card">
                     {!circuit?.sectors?.length && (
-                        <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: '#fff' }}>
+                        <div style={{ position: 'absolute', inset: 0, display: 'grid', placeitems: 'center', color: '#fff' }}>
                             <div className="muted">Caricamento tracciato…</div>
                         </div>
                     )}

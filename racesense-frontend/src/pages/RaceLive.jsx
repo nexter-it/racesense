@@ -2,19 +2,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../App.css';
-import { colorFromName } from '../utils/colors';
+import { colorFromName } from '../utils/colors'; // se non l'hai già, te lo ho dato nel messaggio precedente
 
 const API_BASE = process.env.REACT_APP_API_BASE || `http://${window.location.hostname}:5000`;
 const WS_URL = process.env.REACT_APP_WS_URL || `ws://${window.location.hostname}:5001`;
 
 function toRad(d) { return d * Math.PI / 180; }
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 const formatLap = (s) => {
   if (!s && s !== 0) return '—';
   const m = Math.floor(s / 60);
@@ -32,11 +25,13 @@ export default function RaceLive({ raceConfig, onStopRace }) {
   const [penTargetMac, setPenTargetMac] = useState('');
   useEffect(() => { const t = setInterval(() => setBlink(b => !b), 700); return () => clearInterval(t); }, []);
 
+  // ---- trails + colori
   const trailsRef = useRef({});
   const TRAIL_MAX_AGE_MS = 18000;
   const TRAIL_MAX_LEN = 90;
-  const colorsRef = useRef({}); // mac -> hex deterministico dal nome
+  const colorsRef = useRef({});
 
+  // ---- canvas & interazione
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
   const zoomRef = useRef(1);
@@ -44,6 +39,11 @@ export default function RaceLive({ raceConfig, onStopRace }) {
   const isDraggingRef = useRef(false);
   const lastMouseRef = useRef({ x: 0, y: 0 });
 
+  // pointer events (pinch/pan)
+  const pointersRef = useRef(new Map());
+  const pinchStartRef = useRef({ dist: 0, zoom: 1 });
+
+  // ---- websocket
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
     ws.onmessage = async (event) => {
@@ -59,7 +59,6 @@ export default function RaceLive({ raceConfig, onStopRace }) {
         if (data?.type === 'race_snapshot') {
           const now = Date.now();
 
-          // assegna colore deterministico per ogni mac in base al nome pilota
           (data.drivers || []).forEach(d => {
             const keyName = d.fullName || d.tag || d.mac;
             if (!colorsRef.current[d.mac]) {
@@ -92,13 +91,17 @@ export default function RaceLive({ raceConfig, onStopRace }) {
     return () => { try { ws.close(); } catch { } };
   }, [initCircuit?.sectors?.length]);
 
+  // ---- draw
   useEffect(() => {
     const circuit = circuitData || initCircuit;
     if (!circuit || !canvasRef.current || !circuit?.sectors?.length) return;
 
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
     const dpr = window.devicePixelRatio || 1;
+
+    // importantissimo per mobile (evita lo scroll durante il pinch)
+    canvas.style.touchAction = 'none';
 
     const ensureSize = () => {
       const w = canvas.parentElement.clientWidth || 600;
@@ -112,17 +115,7 @@ export default function RaceLive({ raceConfig, onStopRace }) {
     ensureSize();
     window.addEventListener('resize', onResize);
 
-    const wheel = (e) => { e.preventDefault(); zoomRef.current = Math.max(0.5, Math.min(5, zoomRef.current * (e.deltaY > 0 ? 0.9 : 1.1))); };
-    const mousedown = (e) => { isDraggingRef.current = true; lastMouseRef.current = { x: e.clientX, y: e.clientY }; canvas.style.cursor = 'grabbing'; };
-    const mousemove = (e) => { if (!isDraggingRef.current) return; panRef.current.x += e.clientX - lastMouseRef.current.x; panRef.current.y += e.clientY - lastMouseRef.current.y; lastMouseRef.current = { x: e.clientX, y: e.clientY }; };
-    const mouseup = () => { isDraggingRef.current = false; canvas.style.cursor = 'grab'; };
-    canvas.addEventListener('wheel', wheel, { passive: false });
-    canvas.addEventListener('mousedown', mousedown);
-    canvas.addEventListener('mousemove', mousemove);
-    canvas.addEventListener('mouseup', mouseup);
-    canvas.addEventListener('mouseleave', mouseup);
-    canvas.style.cursor = 'grab';
-
+    // ---- helpers proiezione
     const lats = circuit.sectors.map(s => s.lat);
     const lons = circuit.sectors.map(s => s.lon);
     const minLat = Math.min(...lats), maxLat = Math.max(...lats);
@@ -144,22 +137,90 @@ export default function RaceLive({ raceConfig, onStopRace }) {
       return { x: w / 2 + dx * scale + panRef.current.x, y: h / 2 - dy * scale + panRef.current.y, scale };
     };
 
+    // ---- interazione mouse
+    const wheel = (e) => {
+      e.preventDefault();
+      const dir = e.deltaY > 0 ? 0.9 : 1.1;
+      zoomRef.current = Math.max(0.5, Math.min(6, zoomRef.current * dir));
+    };
+    const mousedown = (e) => { isDraggingRef.current = true; lastMouseRef.current = { x: e.clientX, y: e.clientY }; canvas.style.cursor = 'grabbing'; };
+    const mousemove = (e) => { if (!isDraggingRef.current) return; panRef.current.x += e.clientX - lastMouseRef.current.x; panRef.current.y += e.clientY - lastMouseRef.current.y; lastMouseRef.current = { x: e.clientX, y: e.clientY }; };
+    const mouseup = () => { isDraggingRef.current = false; canvas.style.cursor = 'grab'; };
+    canvas.addEventListener('wheel', wheel, { passive: false });
+    canvas.addEventListener('mousedown', mousedown);
+    canvas.addEventListener('mousemove', mousemove);
+    canvas.addEventListener('mouseup', mouseup);
+    canvas.addEventListener('mouseleave', mouseup);
+    canvas.style.cursor = 'grab';
+
+    // ---- interazione touch (pointer events)
+    const onPointerDown = (ev) => {
+      canvas.setPointerCapture?.(ev.pointerId);
+      pointersRef.current.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (pointersRef.current.size === 1) {
+        lastMouseRef.current = { x: ev.clientX, y: ev.clientY };
+      } else if (pointersRef.current.size === 2) {
+        const pts = Array.from(pointersRef.current.values());
+        const dx = pts[0].x - pts[1].x;
+        const dy = pts[0].y - pts[1].y;
+        pinchStartRef.current = { dist: Math.hypot(dx, dy), zoom: zoomRef.current };
+      }
+    };
+    const onPointerMove = (ev) => {
+      if (!pointersRef.current.has(ev.pointerId)) return;
+      pointersRef.current.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+
+      if (pointersRef.current.size === 1) {
+        const p = pointersRef.current.get(ev.pointerId);
+        panRef.current.x += p.x - lastMouseRef.current.x;
+        panRef.current.y += p.y - lastMouseRef.current.y;
+        lastMouseRef.current = { ...p };
+      } else if (pointersRef.current.size === 2) {
+        const pts = Array.from(pointersRef.current.values());
+        const dx = pts[0].x - pts[1].x;
+        const dy = pts[0].y - pts[1].y;
+        const dist = Math.hypot(dx, dy);
+        if (pinchStartRef.current.dist > 0) {
+          const ratio = dist / pinchStartRef.current.dist;
+          zoomRef.current = Math.max(0.5, Math.min(6, pinchStartRef.current.zoom * ratio));
+        }
+      }
+      ev.preventDefault();
+    };
+    const onPointerUp = (ev) => {
+      canvas.releasePointerCapture?.(ev.pointerId);
+      pointersRef.current.delete(ev.pointerId);
+      if (pointersRef.current.size < 2) {
+        pinchStartRef.current.dist = 0;
+      }
+    };
+    canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
+    canvas.addEventListener('pointermove', onPointerMove, { passive: false });
+    canvas.addEventListener('pointerup', onPointerUp);
+    canvas.addEventListener('pointercancel', onPointerUp);
+    canvas.addEventListener('pointerleave', onPointerUp);
+
+    // ---- render
     const draw = () => {
       ensureSize();
       const w = canvas.width / dpr, h = canvas.height / dpr;
-      ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, w, h);
+
+      // full clear + bg
+      ctx.fillStyle = '#0a0a0a';
+      ctx.fillRect(0, 0, w, h);
 
       const widthMeters = circuit.params?.widthMeters ?? 6;
       const pts = circuit.sectors.map(s => project(s.lat, s.lon));
       const scale = pts[0]?.scale || 1;
       const trackPx = Math.max(6, widthMeters * scale);
 
+      // bordo + asfalto
       ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = trackPx + 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
       ctx.strokeStyle = 'rgba(80,84,90,0.95)'; ctx.lineWidth = trackPx;
       ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
 
+      // linea start
       if (pts.length > 1) {
         const s0 = pts[0], s1 = pts[1]; const ang = Math.atan2(s1.y - s0.y, s1.x - s0.x);
         ctx.save(); ctx.translate(s0.x, s0.y); ctx.rotate(ang);
@@ -167,6 +228,7 @@ export default function RaceLive({ raceConfig, onStopRace }) {
         ctx.beginPath(); ctx.moveTo(0, -trackPx * 0.5); ctx.lineTo(0, trackPx * 0.5); ctx.stroke(); ctx.restore();
       }
 
+      // trails clean
       const now = Date.now();
       Object.keys(trailsRef.current).forEach(k => {
         trailsRef.current[k] = (trailsRef.current[k] || []).filter(p => now - p.ts <= TRAIL_MAX_AGE_MS).slice(-TRAIL_MAX_LEN);
@@ -221,6 +283,11 @@ export default function RaceLive({ raceConfig, onStopRace }) {
       canvas.removeEventListener('mousemove', mousemove);
       canvas.removeEventListener('mouseup', mouseup);
       canvas.removeEventListener('mouseleave', mouseup);
+      canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('pointercancel', onPointerUp);
+      canvas.removeEventListener('pointerleave', onPointerUp);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, [circuitData, initCircuit, snapshot]);
@@ -228,13 +295,14 @@ export default function RaceLive({ raceConfig, onStopRace }) {
   const leaderboard = useMemo(() => (!snapshot?.drivers) ? [] : [...snapshot.drivers].sort((a, b) => a.position - b.position), [snapshot]);
   const globalBestLap = snapshot?.globalBestLap || null;
 
-  const statusColors = useMemo(() => {
+  // chip di stato (no border)
+  const statusChipStyle = useMemo(() => {
     const s = snapshot?.raceStatus || 'IN CORSO';
     switch (s) {
-      case 'RED FLAG': return { chipBg: 'rgba(225,6,0,.15)', chipBorder: '#e10600', chipText: '#ffdede', lbBorder: '#e10600' };
-      case 'YELLOW FLAG': return { chipBg: 'rgba(241,196,15,.15)', chipBorder: '#f1c40f', chipText: '#fff3c4', lbBorder: '#f1c40f' };
-      case 'FINITA': return { chipBg: 'rgba(154,163,154,.15)', chipBorder: '#9aa39a', chipText: '#e0e0e0', lbBorder: '#9aa39a' };
-      default: return { chipBg: 'rgba(21,193,48,.15)', chipBorder: '#15c130', chipText: '#e9ffe0', lbBorder: null };
+      case 'RED FLAG': return { background: 'rgba(225,6,0,.22)', color: '#ffdede' };
+      case 'YELLOW FLAG': return { background: 'rgba(241,196,15,.22)', color: '#fff3c4' };
+      case 'FINITA': return { background: 'rgba(154,163,154,.22)', color: '#f0f0f0' };
+      default: return { background: 'rgba(21,193,48,.22)', color: '#dfffe9' };
     }
   }, [snapshot?.raceStatus]);
 
@@ -254,29 +322,26 @@ export default function RaceLive({ raceConfig, onStopRace }) {
 
   return (
     <div className="main small-top">
-      {/* topbar */}
-      <div className="rs-live-topbar">
-        <div className="rs-live-left">
-          <span className="chip readonly" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span aria-hidden style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff4d4f', boxShadow: '0 0 12px rgba(255,77,79,.8)', opacity: blink ? 1 : .25, transition: 'opacity .15s linear' }} />
-            LIVE
+      {/* TOP BAR — senza bordi, scroll orizzontale su mobile */}
+      <div
+        className="rs-live-topbar rs-live-topbar--glass"
+      >
+        <div className="rs-chip-row">
+          <span className="chip readonly live-pill">
+            <span aria-hidden className={`live-dot ${blink ? 'on' : 'off'}`} /> LIVE
           </span>
-          <span className="chip readonly">{snapshot?.totalLaps ?? totalLaps} giri</span>
-          <span className="chip readonly" style={{ background: statusColors.chipBg, border: `1px solid ${statusColors.chipBorder}`, color: statusColors.chipText, fontWeight: 800 }}>
-            {snapshot?.raceStatus || 'IN CORSO'}
-          </span>
-        </div>
-        <div className="rs-live-right">
-          <span className="chip readonly">{circuitName}</span>
-          {circuitStatsLen && (<span className="chip readonly">{(+circuitStatsLen).toFixed(0)} m</span>)}
-          {circuitWidth && (<span className="chip readonly">{circuitWidth} m larghezza</span>)}
+          <span className="chip readonly pill">{snapshot?.totalLaps ?? totalLaps} giri</span>
+          <span className="chip readonly pill" style={{ ...statusChipStyle, fontWeight: 900 }}>{snapshot?.raceStatus || 'IN CORSO'}</span>
+          <span className="chip readonly pill">{circuitName}</span>
+          {circuitStatsLen && (<span className="chip readonly pill">{(+circuitStatsLen).toFixed(0)} m</span>)}
+          {circuitWidth && (<span className="chip readonly pill">{circuitWidth} m larghezza</span>)}
         </div>
       </div>
 
       <div className="rs-live-grid">
         <div className="track-card"><canvas ref={canvasRef} className="track-canvas" /></div>
 
-        <div className="leaderboard-card" style={{ borderColor: statusColors.lbBorder ?? 'var(--line)', boxShadow: statusColors.lbBorder ? `0 8px 32px ${statusColors.lbBorder}33, inset 0 0 0 1px ${statusColors.lbBorder}55` : undefined }}>
+        <div className="leaderboard-card">
           <div className="lb-header"><div className="lb-title">CLASSIFICA</div><div className="lb-sub">{leaderboard.length} piloti</div></div>
 
           <div className="lb-list">
@@ -302,10 +367,7 @@ export default function RaceLive({ raceConfig, onStopRace }) {
                       {d.photoTeamUrl ? (
                         <img src={`${API_BASE}${d.photoTeamUrl}`} alt={d.team} className="lb-team-logo" />
                       ) : (
-                        <div
-                          className="lb-team-color"
-                          style={{ background: colorsRef.current[d.mac] || colorFromName(d.fullName || d.tag || d.mac) }}
-                        />
+                        <div className="lb-team-color" style={{ background: colorsRef.current[d.mac] || colorFromName(d.fullName || d.tag || d.mac) }} />
                       )}
                     </div>
                     <div className="lb-name">{d.tag}</div>
@@ -343,10 +405,7 @@ export default function RaceLive({ raceConfig, onStopRace }) {
                   {d.photoTeamUrl ? (
                     <img src={`${API_BASE}${d.photoTeamUrl}`} alt={d.team} className="lb-team-logo" />
                   ) : (
-                    <div
-                      className="lb-team-color"
-                      style={{ background: colorsRef.current[d.mac] || colorFromName(d.fullName || d.tag || d.mac) }}
-                    />
+                    <div className="lb-team-color" style={{ background: colorsRef.current[d.mac] || colorFromName(d.fullName || d.tag || d.mac) }} />
                   )}
                 </div>
                 <div className="lb-name">{d.tag}</div>
@@ -370,9 +429,7 @@ export default function RaceLive({ raceConfig, onStopRace }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span className="muted">Stato:</span>
             {['IN CORSO', 'FINITA', 'RED FLAG', 'YELLOW FLAG'].map(s => (
-              <button key={s} className="btn-ghost" onClick={() => sendStatus(s)}
-                style={{ borderColor: (snapshot?.raceStatus === s) ? 'rgba(192,255,3,0.6)' : 'var(--line)', boxShadow: (snapshot?.raceStatus === s) ? '0 0 0 2px rgba(192,255,3,0.12) inset' : 'none', fontWeight: 700 }}
-              >{s}</button>
+              <button key={s} className="btn-ghost" onClick={() => sendStatus(s)} style={{ fontWeight: 700 }}>{s}</button>
             ))}
           </div>
 

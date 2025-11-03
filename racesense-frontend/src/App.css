@@ -1180,3 +1180,85 @@ body,
 }
 
 /* (resto delle classi lb-*, rs-live-*, ecc. già presenti) */
+
+/* === TOP BAR LIVE GLASS (senza bordi) === */
+.rs-live-topbar--glass {
+  border: none !important;
+  outline: none !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 18px;
+  padding: 14px 18px;
+  box-shadow: var(--shadow);
+  margin-bottom: 12px;
+}
+
+/* riga pill scrollabile orizzontale (mobile friendly) */
+.rs-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 4px;
+  /* evita che la shadow la tagli */
+}
+
+.rs-chip-row::-webkit-scrollbar {
+  display: none;
+}
+
+/* pill “pulite”: niente bordi */
+.pill {
+  border: none !important;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* live pill e dot */
+.live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none !important;
+  background: rgba(255, 77, 79, 0.18);
+  font-weight: 800;
+}
+
+.live-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff4d4f;
+  box-shadow: 0 0 14px rgba(255, 77, 79, .9);
+  opacity: .25;
+  transition: opacity .15s linear;
+}
+
+.live-dot.on {
+  opacity: 1;
+}
+
+/* canvas: important per pinch/pan */
+.track-canvas {
+  touch-action: none;
+}
+
+/* topbar: su schermi stretti non rompere il layout */
+@media (max-width: 700px) {
+  .rs-live-topbar--glass {
+    padding: 12px;
+  }
+
+  .rs-live-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* card pista: un filo più compatta su mobile */
+@media (max-width: 640px) {
+  .track-card {
+    height: 340px;
+  }
+}

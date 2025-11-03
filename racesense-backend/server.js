@@ -7,6 +7,7 @@ const multer = require('multer');
 const dgram = require('dgram');
 const { WebSocketServer } = require('ws');
 const http = require('http');
+const { monitorEventLoopDelay, performance } = require('perf_hooks');
 require('dotenv').config();
 
 const app = express();
@@ -14,7 +15,7 @@ const PORT = process.env.PORT || 5000;
 const UDP_PORT = process.env.UDP_PORT || 8888;
 const WS_PORT = process.env.WS_PORT || 5001;
 
-/* ==== CORS (aperto in dev) ==== */
+/* ==== CORS ==== */
 const corsOptions = {
   origin: true,
   credentials: true,
@@ -25,7 +26,7 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(express.json());
 
-/* ==== Logger semplice ==== */
+/* ==== Logger ==== */
 app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
@@ -36,7 +37,7 @@ app.get('/health', (_req, res) => {
   res.status(200).json({ ok: true, port: PORT, env: process.env.NODE_ENV || 'development' });
 });
 app.get('/', (_req, res) => {
-  res.json({ message: 'Benvenuto in RACESENSE', version: '2.1.0' });
+  res.json({ message: 'Benvenuto in RACESENSE', version: '3.0.1' });
 });
 
 /* ==== Persistenza Piloti ==== */
@@ -130,12 +131,8 @@ app.delete('/api/pilots/:id', (req, res) => {
 
 /* ==== API Circuiti ==== */
 function safeReadJSON(fullPath) {
-  try {
-    const raw = fs.readFileSync(fullPath, 'utf8');
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(fs.readFileSync(fullPath, 'utf8')); }
+  catch { return null; }
 }
 
 app.get('/api/circuits', (_req, res) => {
@@ -188,46 +185,106 @@ app.get('/api/circuits/:id', (req, res) => {
 
 /* ==== WebSocket server ==== */
 const server = http.createServer(app);
-const wss = new WebSocketServer({ port: WS_PORT });
+
+// perMessageDeflate + backpressure-ready
+const wss = new WebSocketServer({
+  port: WS_PORT,
+  perMessageDeflate: {
+    zlibDeflateOptions: { level: 6 },
+    clientNoContextTakeover: true,
+    serverNoContextTakeover: true
+  }
+});
 const wsClients = new Set();
+
+// === METRICHE E BROADCAST SICURO ===
+const loop = monitorEventLoopDelay({ resolution: 20 });
+loop.enable();
+
+const metrics = {
+  wsClients: 0,
+  gpsPacketsPerSec: 0,
+  wsBytesPerSec: 0,
+  lastSnapshotBuildMs: 0,
+  _acc: { gpsPackets: 0, wsBytes: 0 }
+};
+
 wss.on('connection', (ws) => {
   console.log(`[WS] Client connesso. Totale: ${wss.clients.size}`);
   wsClients.add(ws);
-  ws.on('close', () => { wsClients.delete(ws); console.log(`[WS] Client disconnesso. Totale: ${wss.clients.size}`); });
+  metrics.wsClients = wss.clients.size;
+
+  ws.on('close', () => {
+    wsClients.delete(ws);
+    console.log(`[WS] Client disconnesso. Totale: ${wss.clients.size}`);
+    metrics.wsClients = wss.clients.size;
+  });
   ws.on('error', (err) => console.error('[WS] Errore:', err.message));
 
   if (Race.isActive()) {
-    ws.send(JSON.stringify(Race.snapshot()));
+    try { ws.send(JSON.stringify(Race.initPayload())); } catch (_) { }
+  } else {
+    try { ws.send(JSON.stringify({ type: 'race_inactive' })); } catch (_) { }
   }
 });
-function broadcast(obj) {
-  const msg = JSON.stringify(obj);
-  wsClients.forEach(c => { if (c.readyState === 1) { try { c.send(msg); } catch (e) { } } });
+
+setInterval(() => {
+  metrics.gpsPacketsPerSec = metrics._acc.gpsPackets;
+  metrics.wsBytesPerSec = metrics._acc.wsBytes;
+  metrics._acc.gpsPackets = 0;
+  metrics._acc.wsBytes = 0;
+}, 1000);
+
+function _broadcastString(str) {
+  const sz = Buffer.byteLength(str);
+  wsClients.forEach(c => {
+    if (c.readyState !== 1) return;
+    if (c.bufferedAmount && c.bufferedAmount > 1_000_000) return;
+    try { c.send(str); metrics._acc.wsBytes += sz; } catch (_) { }
+  });
+}
+function broadcastJSON(obj) { _broadcastString(JSON.stringify(obj)); }
+
+// throttle 20 Hz degli snapshot
+let lastBroadcast = 0;
+function tryBroadcastSnapshot() {
+  const now = Date.now();
+  if (now - lastBroadcast < 50) return;
+  lastBroadcast = now;
+  const t0 = performance.now();
+  const snap = Race.snapshot();
+  metrics.lastSnapshotBuildMs = +(performance.now() - t0).toFixed(2);
+  _broadcastString(JSON.stringify(snap));
 }
 
 /* ==== UDP Listener ==== */
 const udpServer = dgram.createSocket('udp4');
 udpServer.on('message', (msg) => {
   try {
+    metrics._acc.gpsPackets++;
+
     // Formato: MAC/LAT/LON/SATS/QUAL/SPEED_KMH/YYMMDDhhmmss[/CPUTEMP]
     const parts = msg.toString('utf8').trim().split('/');
     if (parts.length < 7) return;
-    const [mac, latStr, lonStr, _sats, _qual, speedStr, ts] = parts;
+    const [mac, latStr, lonStr, satsStr, qualStr, speedStr, ts, cpuTempStr] = parts;
 
     const gps = {
-      mac: mac.toUpperCase(),
+      mac: String(mac || '').toUpperCase(),
       lat: parseFloat(latStr),
       lon: parseFloat(lonStr),
+      sats: parseInt(satsStr) || 0,
+      qual: parseInt(qualStr) || 0,
       speedKmh: parseFloat(speedStr) || 0,
       ts: ts || null,
+      cpuTemp: cpuTempStr ? parseFloat(cpuTempStr) : null,
       receivedAt: Date.now()
     };
 
     if (Race.isActive()) {
       Race.applyGPS(gps);
-      broadcast(Race.snapshot());
+      tryBroadcastSnapshot(); // 20Hz
     } else {
-      broadcast({ type: 'gps_raw', data: gps });
+      broadcastJSON({ type: 'gps_raw', data: gps });
     }
   } catch (e) {
     console.error('[UDP] Errore parsing:', e.message);
@@ -247,8 +304,8 @@ udpServer.bind(UDP_PORT);
 const Race = (() => {
   let active = false;
   let config = null; // { circuitId, circuitData, totalLaps, assignments, pilots }
-  let raceStatus = 'IN CORSO'; // 'IN CORSO' | 'FINITA' | 'RED FLAG' | 'YELLOW FLAG'
-  const drivers = new Map(); // mac -> driver state + penalties
+  let raceStatus = 'IN CORSO';
+  const drivers = new Map(); // mac -> driver state
 
   // Helpers
   const toRad = d => d * Math.PI / 180;
@@ -268,7 +325,6 @@ const Race = (() => {
     }
     return idx;
   }
-
   function pilotById(id) {
     return (config?.pilots || []).find(p => String(p.id) === String(id));
   }
@@ -282,34 +338,62 @@ const Race = (() => {
     arr.forEach((d, i) => d.position = i + 1);
     return arr;
   }
-
   function computeGaps(sorted) {
     if (!sorted.length) return;
     const leader = sorted[0];
     sorted.forEach(d => {
       if (d.mac === leader.mac) { d.gapToLeader = 'LEADER'; return; }
-      if (d.lapCount < leader.lapCount) {
-        d.gapToLeader = `+${leader.lapCount - d.lapCount}L`;
-      } else {
+      if (d.lapCount < leader.lapCount) d.gapToLeader = `+${leader.lapCount - d.lapCount}L`;
+      else {
         const sectorDiff = leader.sectorIdx - d.sectorIdx;
         const est = Math.max(0, sectorDiff / 10);
         d.gapToLeader = `+${est.toFixed(2)}`;
       }
     });
   }
-
   function globalBestLap() {
     let best = null;
-    drivers.forEach(d => { if (d.bestLapTime && (best === null || d.bestLapTime < best)) best = d.bestLapTime; });
+    drivers.forEach(d => {
+      if (d.bestLapTime && (best === null || d.bestLapTime < best)) best = d.bestLapTime;
+    });
     return best;
   }
-
   function penaltySummary(p) {
     const parts = [];
     if (p.timeSec) parts.push(`+${p.timeSec}s`);
     if (p.warnings) parts.push(`⚠️ x${p.warnings}`);
     if (p.dq) parts.push('DQ');
     return parts.join('  ') || '—';
+  }
+  function nextG(prev = { lat: 0, long: 0, vert: 0 }) {
+    const jitter = (x, s, min, max) => Math.max(min, Math.min(max, x + (Math.random() - 0.5) * s));
+    const lat = jitter(prev.lat, 0.2, -2.8, 2.8);
+    const lon = jitter(prev.long, 0.2, -2.8, 2.8);
+    const vert = jitter(prev.vert, 0.08, -0.9, 0.9);
+    const total = Math.sqrt(lat * lat + lon * lon + vert * vert);
+    return { lat: +lat.toFixed(2), long: +lon.toFixed(2), vert: +vert.toFixed(2), total: +total.toFixed(2) };
+  }
+
+  // arrotondamenti per ridurre JSON
+  const round6 = (x) => Math.round((x + Number.EPSILON) * 1e6) / 1e6;
+  const round1 = (x) => Math.round((x + Number.EPSILON) * 10) / 10;
+
+  // payload iniziale (una tantum) con sectors
+  function makeInitPayload() {
+    if (!active || !config?.circuitData) return { type: 'race_inactive' };
+    return {
+      type: 'race_init',
+      ts: new Date().toISOString(),
+      totalLaps: config.totalLaps,
+      raceStatus,
+      circuit: {
+        id: config.circuitId,
+        name: config.circuitData?.name || config.circuitId,
+        stats: config.circuitData?.stats || {},
+        params: config.circuitData?.params || {},
+        sectors: config.circuitData?.sectors || []
+      }
+    };
   }
 
   return {
@@ -318,7 +402,7 @@ const Race = (() => {
       if (!payload?.circuitId || !payload?.assignments || !payload?.pilots) {
         throw new Error('Config gara incompleta');
       }
-      // carica circuitData
+      // carica circuitData completo (con sectors)
       const files = fs.readdirSync(CIRCUITS_DIR).filter(f => f.toLowerCase().endsWith('.json'));
       let circuitData = null;
       for (const f of files) {
@@ -328,21 +412,19 @@ const Race = (() => {
         const id = j.id || path.basename(f, '.json');
         if (id === payload.circuitId) { circuitData = j; break; }
       }
-      if (!circuitData?.sectors?.length) {
-        throw new Error('Circuito non trovato o privo di sectors');
-      }
+      if (!circuitData?.sectors?.length) throw new Error('Circuito non trovato o privo di sectors');
 
+      active = true;
+      raceStatus = 'IN CORSO';
+      drivers.clear();
       config = {
         circuitId: payload.circuitId,
         circuitData,
         totalLaps: Number(payload.totalLaps || 10),
-        assignments: payload.assignments, // { MAC: pilotId }
+        assignments: payload.assignments,
         pilots: payload.pilots
       };
-      drivers.clear();
-      raceStatus = 'IN CORSO';
-      active = true;
-      console.log('[RACE] Avviata su circuito:', circuitData.name || config.circuitId);
+      console.log('[RACE] Avviata su:', circuitData.name || config.circuitId);
     },
     stop: () => {
       active = false;
@@ -360,7 +442,7 @@ const Race = (() => {
       const sectors = config.circuitData.sectors;
       const sectorIdx = closestSector(lat, lon, sectors);
       const totalSectors = sectors.length;
-      const pilot = pilotById(pilotId);
+      const pilot = (config?.pilots || []).find(p => String(p.id) === String(pilotId));
       if (!pilot) return;
 
       const existing = drivers.get(mac) || {
@@ -377,15 +459,17 @@ const Race = (() => {
         lapStartTime: Date.now(),
         lastLapTime: null,
         bestLapTime: null,
+        lapTimes: [],
         pit: false,
         out: false,
         penalties: { timeSec: 0, warnings: 0, dq: false, entries: [] },
+        gforce: { lat: 0, long: 0, vert: 0, total: 0 },
         updatedAt: Date.now()
       };
 
-      let { lapCount, lastLapTime, bestLapTime, lapStartTime } = existing;
+      let { lapCount, lastLapTime, bestLapTime, lapStartTime, lapTimes } = existing;
 
-      // crossing: ultimi 10 -> primi 10 settori
+      // crossing linea start
       if (existing.lastSectorIdx > totalSectors - 10 && sectorIdx < 10) {
         const lapSec = (Date.now() - existing.lapStartTime) / 1000;
         if (lapSec > 5) {
@@ -393,6 +477,7 @@ const Race = (() => {
           lastLapTime = lapSec;
           bestLapTime = (!bestLapTime || lapSec < bestLapTime) ? lapSec : bestLapTime;
           lapStartTime = Date.now();
+          lapTimes = [...lapTimes, +lapSec.toFixed(3)];
         }
       }
 
@@ -402,7 +487,8 @@ const Race = (() => {
         speed: speedKmh || 0,
         sectorIdx,
         lastSectorIdx: sectorIdx,
-        lapCount, lastLapTime, bestLapTime, lapStartTime,
+        lapCount, lastLapTime, bestLapTime, lapStartTime, lapTimes,
+        gforce: nextG(existing.gforce),
         updatedAt: Date.now()
       };
       drivers.set(mac, updated);
@@ -419,14 +505,11 @@ const Race = (() => {
 
       if (type === '+5s' || type === '+10s' || type === '+15s') {
         const add = parseInt(type.replace(/\D/g, ''), 10);
-        p.timeSec += add;
-        p.entries.push({ type, value: add, ts: Date.now() });
+        p.timeSec += add; p.entries.push({ type, value: add, ts: Date.now() });
       } else if (type === '1mo avv. squalifica') {
-        p.warnings += 1;
-        p.entries.push({ type, value: 'WARN', ts: Date.now() });
+        p.warnings += 1; p.entries.push({ type, value: 'WARN', ts: Date.now() });
       } else if (type === 'squalifica') {
-        p.dq = true;
-        p.entries.push({ type, value: 'DQ', ts: Date.now() });
+        p.dq = true; p.entries.push({ type, value: 'DQ', ts: Date.now() });
       } else {
         throw new Error('Tipo penalità non valido');
       }
@@ -443,14 +526,14 @@ const Race = (() => {
         ts: new Date().toISOString(),
         totalLaps: config.totalLaps,
         raceStatus,
+        leaderMac: sorted[0]?.mac || null,
+        globalBestLap: best,
         circuit: {
           id: config.circuitId,
           name: config.circuitData?.name || config.circuitId,
           stats: config.circuitData?.stats || {},
           params: config.circuitData?.params || {}
         },
-        leaderMac: sorted[0]?.mac || null,
-        globalBestLap: best,
         drivers: sorted.map(d => ({
           mac: d.mac,
           pilotId: d.pilotId,
@@ -458,11 +541,14 @@ const Race = (() => {
           tag: d.tag,
           team: d.team,
           photoTeamUrl: d.photoTeamUrl,
-          lat: d.lat, lon: d.lon, speed: d.speed,
+          lat: round6(d.lat),
+          lon: round6(d.lon),
+          speedKmh: round1(d.speed),
           sectorIdx: d.sectorIdx,
           lapCount: d.lapCount,
           lastLapTime: d.lastLapTime,
           bestLapTime: d.bestLapTime,
+          lapTimes: Array.isArray(d.lapTimes) ? d.lapTimes.slice(-50) : [], // ⬅️ includo ultimi 50
           position: d.position,
           gapToLeader: d.gapToLeader,
           penalty: {
@@ -470,10 +556,40 @@ const Race = (() => {
             warnings: d.penalties?.warnings || 0,
             dq: !!d.penalties?.dq,
             summary: penaltySummary(d.penalties || {})
-          }
+          },
+          gforce: d.gforce
         }))
       };
-    }
+    },
+    getPilot: (mac) => {
+      if (!active) return null;
+      const d = drivers.get(String(mac).toUpperCase());
+      if (!d) return null;
+      return {
+        mac: d.mac,
+        pilotId: d.pilotId,
+        fullName: d.fullName,
+        tag: d.tag,
+        team: d.team,
+        photoTeamUrl: d.photoTeamUrl,
+        lat: d.lat, lon: d.lon,
+        speedKmh: d.speed,
+        sectorIdx: d.sectorIdx,
+        lapCount: d.lapCount,
+        lastLapTime: d.lastLapTime,
+        bestLapTime: d.bestLapTime,
+        lapTimes: d.lapTimes, // completo via API singolo pilota
+        position: d.position || null,
+        penalty: {
+          timeSec: d.penalties?.timeSec || 0,
+          warnings: d.penalties?.warnings || 0,
+          dq: !!d.penalties?.dq,
+          summary: penaltySummary(d.penalties || {})
+        },
+        gforce: d.gforce
+      };
+    },
+    initPayload: () => makeInitPayload()
   };
 })();
 
@@ -481,7 +597,6 @@ const Race = (() => {
 app.post('/api/race/start', (req, res) => {
   try {
     if (Race.isActive()) {
-      // Non riavviare: segnala che c'è già una gara in corso
       return res.status(409).json({ error: 'Gara già in corso', snapshot: Race.snapshot() });
     }
     Race.start({
@@ -490,9 +605,12 @@ app.post('/api/race/start', (req, res) => {
       assignments: req.body.assignments || {},
       pilots: req.body.pilots || []
     });
+
+    broadcastJSON(Race.initPayload()); // sectors una volta
+    const t0 = performance.now();
     const snap = Race.snapshot();
-    broadcast(snap);
-    res.json({ ok: true, snapshot: snap });
+    broadcastJSON(snap);
+    res.json({ ok: true, snapshot: snap, lastSnapshotBuildMs: +(performance.now() - t0).toFixed(2) });
   } catch (e) {
     console.error('[RACE] start error', e.message);
     res.status(400).json({ error: e.message });
@@ -500,20 +618,21 @@ app.post('/api/race/start', (req, res) => {
 });
 app.post('/api/race/stop', (_req, res) => {
   Race.stop();
-  broadcast({ type: 'race_inactive' });
+  broadcastJSON({ type: 'race_inactive' });
   res.json({ ok: true });
 });
 app.get('/api/race/state', (_req, res) => {
   res.json(Race.snapshot());
 });
 
-/* ==== API Comandi Gara (client → server) ==== */
+/* ==== API Comandi Gara ==== */
 app.post('/api/race/status', (req, res) => {
   try {
     Race.setStatus(String(req.body.status));
+    const t0 = performance.now();
     const snap = Race.snapshot();
-    broadcast(snap);
-    res.json({ ok: true });
+    broadcastJSON(snap);
+    res.json({ ok: true, lastSnapshotBuildMs: +(performance.now() - t0).toFixed(2) });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -522,12 +641,42 @@ app.post('/api/race/penalty', (req, res) => {
   try {
     const { mac, type } = req.body || {};
     Race.applyPenalty({ mac, type });
+    const t0 = performance.now();
     const snap = Race.snapshot();
-    broadcast(snap);
-    res.json({ ok: true });
+    broadcastJSON(snap);
+    res.json({ ok: true, lastSnapshotBuildMs: +(performance.now() - t0).toFixed(2) });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+});
+
+/* ==== API Singolo Pilota ==== */
+app.get('/api/race/pilot/:mac', (req, res) => {
+  const mac = String(req.params.mac || '').toUpperCase();
+  const d = Race.getPilot(mac);
+  if (!d) return res.status(404).json({ error: 'Pilota non trovato o gara non attiva' });
+  const snap = Race.snapshot();
+  res.json({
+    ok: true,
+    pilot: d,
+    circuit: snap.circuit || null,
+    raceStatus: snap.raceStatus || 'IN CORSO',
+    totalLaps: snap.totalLaps || 0
+  });
+});
+
+/* ==== API Metriche ==== */
+app.get('/api/metrics', (_req, res) => {
+  res.json({
+    ok: true,
+    node: process.version,
+    rssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    eventLoopLagMs: +(loop.mean / 1e6).toFixed(2),
+    wsClients: metrics.wsClients,
+    gpsPacketsPerSec: metrics.gpsPacketsPerSec,
+    wsBytesPerSec: metrics.wsBytesPerSec,
+    lastSnapshotBuildMs: metrics.lastSnapshotBuildMs
+  });
 });
 
 app.listen(PORT, () => {

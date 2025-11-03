@@ -51,7 +51,16 @@ export default function RaceSetup({ onStartRace }) {
       try {
         const data = JSON.parse(event.data);
 
-        // Se la gara è attiva sul server, mostra banner immediatamente
+        if (data?.type === 'race_init') {
+          // Banner gara in corso (init arriva all’avvio o alla connessione)
+          setRaceInProgress({
+            totalLaps: data.totalLaps,
+            raceStatus: data.raceStatus,
+            circuit: data.circuit
+          });
+          return;
+        }
+
         if (data?.type === 'race_snapshot') {
           setRaceInProgress(data);
           return;
@@ -89,7 +98,7 @@ export default function RaceSetup({ onStartRace }) {
     setDeviceAssignments(prev => ({ ...prev, [mac]: pilotIdString }));
   };
 
-  // START: se già attiva mostro banner (che c’è già); se non attiva, avvio.
+  // START: se già attiva mostro banner; se non attiva, avvio.
   const handleStart = async () => {
     try {
       const s = await fetch(`${API_BASE}/api/race/state`).then(r => r.json());
@@ -134,8 +143,6 @@ export default function RaceSetup({ onStartRace }) {
   };
 
   const activeMacs = Object.keys(activeDevices);
-  const assignedCount = Object.values(deviceAssignments).filter(Boolean).length;
-  const canStart = true;
   const selectedStyle = { borderColor: 'rgba(192, 255, 3, 0.55)', boxShadow: '0 0 24px rgba(192,255,3,0.25)' };
 
   return (
@@ -224,7 +231,7 @@ export default function RaceSetup({ onStartRace }) {
                     <div className="form-row" style={{ gridTemplateColumns: '1fr' }}>
                       <div className="form-col">
                         <label className="muted">Pilota</label>
-                        <select className="input" value={assignedPilotId} onChange={(e) => assignPilotToDevice(mac, e.target.value)}>
+                        <select className="input" value={assignedPilotId} onChange={(e) => setDeviceAssignments(prev => ({ ...prev, [mac]: e.target.value }))}>
                           <option value="">-- Seleziona --</option>
                           {pilots.map(p => <option key={p.id} value={String(p.id)}>{p.name} {p.surname} ({p.team})</option>)}
                         </select>
@@ -232,7 +239,7 @@ export default function RaceSetup({ onStartRace }) {
                     </div>
                     {assignedPilot ? (
                       <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
-                        <button className="btn-danger" onClick={() => assignPilotToDevice(mac, '')}>Rimuovi</button>
+                        <button className="btn-danger" onClick={() => setDeviceAssignments(prev => ({ ...prev, [mac]: '' }))}>Rimuovi</button>
                       </div>
                     ) : <span className="muted">non assegnato</span>}
                   </div>

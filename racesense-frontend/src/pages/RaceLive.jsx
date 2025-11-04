@@ -8,12 +8,21 @@ const API_BASE = process.env.REACT_APP_API_BASE || `http://${window.location.hos
 const WS_URL = process.env.REACT_APP_WS_URL || `ws://${window.location.hostname}:5001`;
 
 function toRad(d) { return d * Math.PI / 180; }
+
 const formatLap = (s) => {
   if (!s && s !== 0) return '—';
   const m = Math.floor(s / 60);
   const sec = (s % 60).toFixed(3);
   return `${m}:${sec.padStart(6, '0')}`;
 };
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 export default function RaceLive({ raceConfig, onStopRace }) {
   const { circuitData, totalLaps } = raceConfig;
@@ -27,8 +36,9 @@ export default function RaceLive({ raceConfig, onStopRace }) {
 
   // ---- trails + colori
   const trailsRef = useRef({});
-  const TRAIL_MAX_AGE_MS = 18000;
-  const TRAIL_MAX_LEN = 90;
+  const TRAIL_MAX_AGE_MS = 2000;   // prima 18000
+  const TRAIL_MAX_LEN = 15;        // prima 90
+  const TRAIL_MIN_MOVE_M = 2.5;    // non aggiungere punti se si è mossi < 2.5 m
   const colorsRef = useRef({});
 
   // ---- canvas & interazione
@@ -38,6 +48,9 @@ export default function RaceLive({ raceConfig, onStopRace }) {
   const panRef = useRef({ x: 0, y: 0 });
   const isDraggingRef = useRef(false);
   const lastMouseRef = useRef({ x: 0, y: 0 });
+
+  const dirtyRef = useRef(false);
+  const lastDrawRef = useRef(0);
 
   // pointer events (pinch/pan)
   const pointersRef = useRef(new Map());
@@ -68,7 +81,12 @@ export default function RaceLive({ raceConfig, onStopRace }) {
 
           (data.drivers || []).forEach(d => {
             const t = trailsRef.current[d.mac] || [];
-            trailsRef.current[d.mac] = [...t, { lat: d.lat, lon: d.lon, ts: now }].slice(-TRAIL_MAX_LEN);
+            const last = t[t.length - 1];
+            // Aggiungi un punto solo se ci si è mossi abbastanza (TRAIL_MIN_MOVE_M)
+            if (!last || haversine(last.lat, last.lon, d.lat, d.lon) >= TRAIL_MIN_MOVE_M) {
+              const next = [...t, { lat: d.lat, lon: d.lon, ts: now }];
+              trailsRef.current[d.mac] = next.length > TRAIL_MAX_LEN ? next.slice(-TRAIL_MAX_LEN) : next;
+            }
           });
 
           if (!initCircuit?.sectors?.length && data.circuit?.id) {
@@ -82,6 +100,7 @@ export default function RaceLive({ raceConfig, onStopRace }) {
           }
 
           setSnapshot(data);
+          dirtyRef.current = true;
         } else if (data?.type === 'race_inactive') {
           setSnapshot(null);
         }
@@ -90,6 +109,14 @@ export default function RaceLive({ raceConfig, onStopRace }) {
     ws.onerror = (e) => console.error('[RaceLive] WS error', e);
     return () => { try { ws.close(); } catch { } };
   }, [initCircuit?.sectors?.length]);
+
+  // === Colori per S1/S2/S3 presi dai customSectors del circuito ===
+  const sectorColors = useMemo(() => {
+    const circuit = circuitData || initCircuit || snapshot?.circuit || {};
+    const custom = circuit?.customSectors || [];
+    const fallback = ['#ff4d4f', '#2ecc71', '#3498db']; // rosso, verde, blu
+    return [0, 1, 2].map(i => custom[i]?.color || fallback[i]);
+  }, [circuitData, initCircuit, snapshot?.circuit]);
 
   // ---- draw
   useEffect(() => {
@@ -202,6 +229,13 @@ export default function RaceLive({ raceConfig, onStopRace }) {
 
     // ---- render
     const draw = () => {
+      // evita ridisegni continui: solo quando dirty e al massimo 30 fps
+      const noww = performance.now();
+      if (!dirtyRef.current && noww - lastDrawRef.current < 33) return;
+
+      dirtyRef.current = false;
+      lastDrawRef.current = noww;
+
       ensureSize();
       const w = canvas.width / dpr, h = canvas.height / dpr;
 
@@ -232,7 +266,7 @@ export default function RaceLive({ raceConfig, onStopRace }) {
           ctx.lineJoin = 'round';
           ctx.strokeStyle = color;
           ctx.lineWidth = trackPx + 3;           // spessore bordo esterno
-          ctx.globalAlpha = 0.35;                // stessa trasparenza dell’editor
+          ctx.globalAlpha = 0.65;                // stessa trasparenza dell’editor
 
           ctx.beginPath();
           for (let i = start; i <= end; i++) {
@@ -310,16 +344,19 @@ export default function RaceLive({ raceConfig, onStopRace }) {
           const v = parseInt(full, 16), rr = (v >> 16) & 255, gg = (v >> 8) & 255, bb = v & 255;
           fill = `rgba(${rr},${gg},${bb},1)`;
         }
-        ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 4;
+        ctx.shadowColor = 'rgba(0,0,0,0.35)';
+        ctx.shadowBlur = 2;
         ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
         ctx.fillStyle = '#fff'; ctx.font = 'bold 10px Roboto, sans-serif'; ctx.textAlign = 'center';
         ctx.fillText(d.tag, p.x, p.y - (r + 8));
       });
 
-      animFrameRef.current = requestAnimationFrame(draw);
+      // animFrameRef.current = requestAnimationFrame(draw);
     };
+
     draw();
+    const interval = setInterval(() => { dirtyRef.current = true; draw(); }, 250);
 
     return () => {
       window.removeEventListener('resize', onResize);
@@ -334,6 +371,7 @@ export default function RaceLive({ raceConfig, onStopRace }) {
       canvas.removeEventListener('pointercancel', onPointerUp);
       canvas.removeEventListener('pointerleave', onPointerUp);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      clearInterval(interval);
     };
   }, [circuitData, initCircuit, snapshot]);
 
@@ -453,9 +491,9 @@ export default function RaceLive({ raceConfig, onStopRace }) {
           <div>Team</div>
           <div>Pilota</div>
           <div style={{ textAlign: 'right' }}>GAP</div>
-          <div style={{ textAlign: 'right' }}>S1</div>
-          <div style={{ textAlign: 'right' }}>S2</div>
-          <div style={{ textAlign: 'right' }}>S3</div>
+          <div style={{ textAlign: 'right', color: sectorColors[0], fontWeight: 900 }}>S1</div>
+          <div style={{ textAlign: 'right', color: sectorColors[1], fontWeight: 900 }}>S2</div>
+          <div style={{ textAlign: 'right', color: sectorColors[2], fontWeight: 900 }}>S3</div>
           <div style={{ textAlign: 'right' }}>Ultimo</div>
           <div style={{ textAlign: 'right' }}>Migliore</div>
           <div style={{ textAlign: 'right' }}>Sanzioni</div>

@@ -1793,3 +1793,96 @@ body,
     justify-content: flex-end;
   }
 }
+
+/* ===== LAP LIST (PilotLive) ===== */
+.lap-header {
+  display: grid;
+  grid-template-columns: 70px 1fr 1fr 120px;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 10px 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  font-weight: 800;
+  color: rgba(206, 206, 206, 0.8);
+}
+
+.lap-list {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.lap-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 1fr 120px;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  transition: background .2s, border-color .2s, transform .2s;
+}
+
+.lap-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(192, 255, 3, 0.25);
+  transform: translateX(-2px);
+}
+
+.lap-row.is-pb .lap-time {
+  color: #b085ff;
+  font-weight: 900;
+}
+
+.lap-row.is-last .lap-time {
+  color: #e9ffe0;
+  font-weight: 900;
+}
+
+.lap-pos {
+  font-weight: 900;
+  color: var(--brand);
+  text-align: center;
+}
+
+.lap-time {
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.lap-delta {
+  font-weight: 800;
+  text-align: right;
+  color: #ff6b6b;
+}
+
+.lap-badges {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: .82rem;
+  font-weight: 900;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  color: #fff;
+}
+
+.badge-pb {
+  color: #b085ff;
+  border-color: rgba(176, 133, 255, .5);
+}
+
+.badge-last {
+  color: #e9ffe0;
+  border-color: rgba(233, 255, 224, .45);
+}

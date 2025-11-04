@@ -14,6 +14,13 @@ const formatLap = (s) => {
     return `${m}:${sec.padStart(6, '0')}`;
 };
 
+const formatDelta = (s) => {
+    if (s == null) return '—';
+    const sign = s >= 0 ? '+' : '—';
+    const v = Math.abs(s);
+    return `${sign}${v.toFixed(3)}`;
+};
+
 export default function PilotLive() {
     const { mac } = useParams();
     const navigate = useNavigate();
@@ -59,7 +66,7 @@ export default function PilotLive() {
                         const rc = await fetch(`${API_BASE}/api/circuits/${j.circuit.id}`);
                         if (rc.ok) {
                             const full = await rc.json();
-                            setCircuit({ id: j.circuit.id, name: full.name || j.circuit.id, stats: full.stats || {}, params: full.params || {}, sectors: full.sectors || [] });
+                            setCircuit({ id: j.circuit.id, name: full.name || j.circuit.id, stats: full.stats || {}, params: full.params || {}, sectors: full.sectors || [], customSectors: full.customSectors || [] });
                         } else {
                             setCircuit(j.circuit);
                         }
@@ -101,7 +108,7 @@ export default function PilotLive() {
                             const rc = await fetch(`${API_BASE}/api/circuits/${data.circuit.id}`);
                             if (rc.ok) {
                                 const full = await rc.json();
-                                setCircuit({ id: data.circuit.id, name: full.name || data.circuit.id, stats: full.stats || {}, params: full.params || {}, sectors: full.sectors || [] });
+                                setCircuit({ id: data.circuit.id, name: full.name || data.circuit.id, stats: full.stats || {}, params: full.params || {}, sectors: full.sectors || [], customSectors: full.customSectors || [] });
                             } else {
                                 setCircuit(data.circuit);
                             }
@@ -239,10 +246,53 @@ export default function PilotLive() {
             const trackPx = Math.max(6, widthMeters * scale);
 
             // pista
-            ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = trackPx + 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-            ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
-            ctx.strokeStyle = 'rgba(80,84,90,0.95)'; ctx.lineWidth = trackPx;
-            ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
+            // === BORDO ESTERNO COLORATO PER SETTORI ===
+            const sectors = circuit.customSectors || [];
+            if (Array.isArray(sectors) && sectors.length > 0) {
+                sectors.forEach((sector, idx) => {
+                    if (sector.startIdx == null || sector.endIdx == null) return;
+                    const start = Math.max(0, Math.min(sector.startIdx, circuit.sectors.length - 1));
+                    const end = Math.max(0, Math.min(sector.endIdx, circuit.sectors.length - 1));
+                    if (end <= start) return;
+
+                    const color = sector.color || ['#ff0000', '#00ff00', '#0000ff'][idx % 3];
+                    ctx.save();
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = trackPx + 3;
+                    ctx.globalAlpha = 0.65;
+
+                    ctx.beginPath();
+                    for (let i = start; i <= end; i++) {
+                        const p = project(circuit.sectors[i].lat, circuit.sectors[i].lon);
+                        if (i === start) ctx.moveTo(p.x, p.y);
+                        else ctx.lineTo(p.x, p.y);
+                    }
+                    ctx.stroke();
+                    ctx.restore();
+                });
+            } else {
+                // fallback: bordo uniforme tenue
+                ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+                ctx.lineWidth = trackPx + 3;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+                ctx.closePath();
+                ctx.stroke();
+            }
+
+            // asfalto
+            ctx.strokeStyle = 'rgba(80,84,90,0.95)';
+            ctx.lineWidth = trackPx;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+            ctx.closePath();
+            ctx.stroke();
 
             // start
             if (pts.length > 1) {
@@ -379,14 +429,38 @@ export default function PilotLive() {
 
                         <div className="pilot-form" style={{ marginTop: 12 }}>
                             <div className="section-title" style={{ margin: 0, fontSize: '1.2rem' }}>Tempi di tutti i giri</div>
-                            <div className="lb-list" style={{ maxHeight: '40vh' }}>
-                                {driver?.lapTimes?.length ? driver.lapTimes.map((t, i) => (
-                                    <div key={i} className="lb-row" style={{ gridTemplateColumns: '80px 1fr 1fr' }}>
-                                        <div className="lb-pos">{i + 1}</div>
-                                        <div className="lb-name">Tempo</div>
-                                        <div className="lb-gap" style={{ textAlign: 'right', color: '#e9ffe0', fontWeight: 900 }}>{formatLap(t)}</div>
-                                    </div>
-                                )) : (
+
+                            {/* header compatto */}
+                            <div className="lap-header">
+                                <div>#</div>
+                                <div>Tempo</div>
+                                <div>Δ best</div>
+                                {/* <div>Badge</div> */}
+                            </div>
+
+                            <div className="lap-list">
+                                {Array.isArray(driver?.lapTimes) && driver.lapTimes.length > 0 ? (
+                                    (() => {
+                                        const best = Math.min(...driver.lapTimes.filter(t => typeof t === 'number'));
+                                        const lastIdx = driver.lapTimes.length - 1;
+                                        return driver.lapTimes.map((t, i) => {
+                                            const isPB = t === best;
+                                            const isLast = i === lastIdx;
+                                            const delta = (typeof t === 'number' && typeof best === 'number') ? (t - best) : null;
+                                            return (
+                                                <div key={i} className={`lap-row ${isPB ? 'is-pb' : ''} ${isLast ? 'is-last' : ''}`}>
+                                                    <div className="lap-pos">{i + 1}</div>
+                                                    <div className="lap-time">{formatLap(t)}</div>
+                                                    <div className="lap-delta">{isPB ? '—' : formatDelta(delta)}</div>
+                                                    <div className="lap-badges">
+                                                        {isPB && <span className="badge badge-pb">PB</span>}
+                                                        {/* {isLast && <span className="badge badge-last">LS</span>} */}
+                                                    </div>
+                                                </div>
+                                            );
+                                        });
+                                    })()
+                                ) : (
                                     <div className="muted">Nessun giro completato ancora…</div>
                                 )}
                             </div>

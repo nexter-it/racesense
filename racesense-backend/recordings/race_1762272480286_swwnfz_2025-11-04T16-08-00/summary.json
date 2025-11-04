@@ -1,0 +1,70 @@
+{
+  "raceId": "race_1762272480286_swwnfz",
+  "raceName": "race_1762272480286_swwnfz_2025-11-04T16-08-00",
+  "startTime": "2025-11-04T16:08:00.286Z",
+  "endTime": "2025-11-04T16:08:07.817Z",
+  "durationSeconds": 7,
+  "packetCount": 2939,
+  "finalData": {
+    "type": "race_snapshot",
+    "ts": "2025-11-04T16:08:07.817Z",
+    "totalLaps": 10,
+    "raceStatus": "IN CORSO",
+    "leaderMac": "2D0853A819F8",
+    "globalBestLap": null,
+    "circuit": {
+      "id": "2025-10-23T13-39-40-000Z__tracciato-ferrara-gara",
+      "name": "Extrema Kart",
+      "stats": {
+        "lengthMeters": 760.9327597575347
+      },
+      "params": {
+        "widthMeters": 10,
+        "spacingMeters": 1,
+        "minQual": 3
+      }
+    },
+    "drivers": [
+      {
+        "mac": "2D0853A819F8",
+        "pilotId": "mhkno8dpfygr0s",
+        "fullName": "Pierpaolo Cavalli",
+        "tag": "CAVA",
+        "team": "Nexter Racing",
+        "photoTeamUrl": "/uploads/1762265995091_14600n_Screenshot_2025-11-04_alle_15.18.03.png",
+        "lat": 44.831255,
+        "lon": 11.223406,
+        "speedKmh": 59.1,
+        "sectorIdx": 219,
+        "lapCount": 0,
+        "lastLapTime": null,
+        "bestLapTime": null,
+        "lapTimes": [],
+        "position": 1,
+        "gapToLeader": "LEADER",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": 1,
+          "long": 0.66,
+          "vert": 0.45,
+          "total": 1.28
+        },
+        "sectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        }
+      }
+    ]
+  }
+}

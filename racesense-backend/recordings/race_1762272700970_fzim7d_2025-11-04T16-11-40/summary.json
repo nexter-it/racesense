@@ -1,0 +1,212 @@
+{
+  "raceId": "race_1762272700970_fzim7d",
+  "raceName": "race_1762272700970_fzim7d_2025-11-04T16-11-40",
+  "startTime": "2025-11-04T16:11:40.971Z",
+  "endTime": "2025-11-04T16:28:00.136Z",
+  "durationSeconds": 979,
+  "packetCount": 366200,
+  "finalData": {
+    "type": "race_snapshot",
+    "ts": "2025-11-04T16:28:00.136Z",
+    "totalLaps": 10,
+    "raceStatus": "IN CORSO",
+    "leaderMac": "CEC81FB3647E",
+    "globalBestLap": 5.861,
+    "circuit": {
+      "id": "2025-10-23T13-39-40-000Z__tracciato-ferrara-gara",
+      "name": "Extrema Kart",
+      "stats": {
+        "lengthMeters": 760.9327597575347
+      },
+      "params": {
+        "widthMeters": 10,
+        "spacingMeters": 1,
+        "minQual": 3
+      }
+    },
+    "drivers": [
+      {
+        "mac": "CEC81FB3647E",
+        "pilotId": "mhknowrx1w0r7i",
+        "fullName": "Mattia Casetta",
+        "tag": "CASE",
+        "team": "Nexter Racing",
+        "photoTeamUrl": "/uploads/1762266026688_536iok_Screenshot_2025-11-04_alle_15.18.03.png",
+        "lat": 44.831545,
+        "lon": 11.224224,
+        "speedKmh": 61.9,
+        "sectorIdx": 31,
+        "lapCount": 23,
+        "lastLapTime": 44.019,
+        "bestLapTime": 8.132,
+        "lapTimes": [
+          8.132,
+          44.088,
+          44.019,
+          44.086,
+          44.025,
+          44.084,
+          44.022,
+          44.082,
+          44.022,
+          44.086,
+          44.033,
+          43.999,
+          44.037,
+          44.061,
+          44.01,
+          44.059,
+          44.082,
+          44.013,
+          44.042,
+          44.078,
+          44.006,
+          44.094,
+          44.019
+        ],
+        "position": 1,
+        "gapToLeader": "LEADER",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": 2.52,
+          "long": 2.11,
+          "vert": 0.21,
+          "total": 3.3
+        },
+        "sectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": 15.101,
+          "S2": 14.425,
+          "S3": 14.493
+        }
+      },
+      {
+        "mac": "2D0853A819F8",
+        "pilotId": "mhknqe1296spbi",
+        "fullName": "Dario Mantovani",
+        "tag": "MANT",
+        "team": "Futura Corse",
+        "photoTeamUrl": "/uploads/1762266095749_7gjf9g_Screenshot_2025-11-04_alle_15.21.12.png",
+        "lat": 44.831808,
+        "lon": 11.223121,
+        "speedKmh": 58.6,
+        "sectorIdx": 698,
+        "lapCount": 21,
+        "lastLapTime": 46.568,
+        "bestLapTime": 5.861,
+        "lapTimes": [
+          5.861,
+          46.558,
+          46.559,
+          46.49,
+          46.562,
+          46.556,
+          46.492,
+          46.57,
+          46.551,
+          46.486,
+          46.55,
+          46.553,
+          46.551,
+          46.543,
+          46.471,
+          46.545,
+          46.56,
+          46.516,
+          46.549,
+          46.545,
+          46.568
+        ],
+        "position": 2,
+        "gapToLeader": "+2L",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": -2.67,
+          "long": 1.5,
+          "vert": 0.07,
+          "total": 3.06
+        },
+        "sectorTimes": {
+          "S1": 15.832,
+          "S2": 15.294,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": 15.897,
+          "S2": 15.232,
+          "S3": 15.439
+        }
+      },
+      {
+        "mac": "2DA354655C1E",
+        "pilotId": "mhkno8dpfygr0s",
+        "fullName": "Pierpaolo Cavalli",
+        "tag": "CAVA",
+        "team": "Nexter Racing",
+        "photoTeamUrl": "/uploads/1762265995091_14600n_Screenshot_2025-11-04_alle_15.18.03.png",
+        "lat": 44.831732,
+        "lon": 11.223766,
+        "speedKmh": 43.1,
+        "sectorIdx": 752,
+        "lapCount": 15,
+        "lastLapTime": 63.247,
+        "bestLapTime": 30.443,
+        "lapTimes": [
+          30.443,
+          63.322,
+          63.264,
+          63.321,
+          63.258,
+          63.309,
+          63.274,
+          63.314,
+          63.276,
+          63.261,
+          63.254,
+          63.284,
+          63.247,
+          63.314,
+          63.247
+        ],
+        "position": 3,
+        "gapToLeader": "+8L",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": 0.68,
+          "long": -1.27,
+          "vert": -0.25,
+          "total": 1.46
+        },
+        "sectorTimes": {
+          "S1": 21.517,
+          "S2": 20.774,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": 21.479,
+          "S2": 20.79,
+          "S3": 20.978
+        }
+      }
+    ]
+  }
+}

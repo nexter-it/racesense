@@ -7,6 +7,7 @@ import PilotsPage from './pages/Pilots';
 import CircuitsPage from './pages/Circuits';
 import RacePage from './pages/Race';
 import PilotLive from './pages/PilotLive'; // ⬅⬅ NUOVO
+import Championships from './pages/Championships';
 
 const API_BASE = process.env.REACT_APP_API_BASE || `http://${window.location.hostname}:5000`;
 function BackendStatusBox() {
@@ -99,7 +100,8 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-left">
           <img src={logo} alt="Logo Nexter" className="brand-logo" />
-          <span className="brand-badge">beta</span>
+          {/* <h4 className="main-title">RACESENSE<span className="title-accent" /></h4> */}
+          <span className="brand-badge">v0.1 beta</span>
         </div>
         <BackendStatusBox />
       </header>
@@ -108,7 +110,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/circuiti" element={<CircuitsPage apiBase={API_BASE} />} />
         <Route path="/piloti" element={<PilotsPage apiBase={API_BASE} />} />
-        <Route path="/campionati" element={<div style={{ color: '#fff', padding: '3rem', textAlign: 'center' }}><h1>CAMPIONATI</h1><p>Pagina in costruzione...</p></div>} />
+        <Route path="/campionati" element={<Championships />} />
         <Route path="/race" element={<RacePage />} />
         <Route path="/pilot/:mac" element={<PilotLive />} /> {/* ⬅⬅ NUOVA PAGINA */}
         <Route path="*" element={<Home />} />

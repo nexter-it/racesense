@@ -1,8 +1,5 @@
 import React from 'react';
 
-/** Campionati statici richiesti */
-const CHAMPIONSHIPS = ['iron', 'iron inx', 'spint'];
-
 /** Dropzone semplice (drag&drop o click) */
 function Dropzone({ label, file, onFileChange, accept = 'image/*' }) {
   const inputRef = React.useRef(null);
@@ -64,7 +61,7 @@ export default function PilotsPage({ apiBase }) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
 
-  // form state
+  // === FORM STATE ===
   const [name, setName] = React.useState('');
   const [surname, setSurname] = React.useState('');
   const [team, setTeam] = React.useState('');
@@ -73,11 +70,16 @@ export default function PilotsPage({ apiBase }) {
   const [photoTeam, setPhotoTeam] = React.useState(null);
   const [submitting, setSubmitting] = React.useState(false);
 
-  // search state
+  // === CHAMPIONSHIPS ===
+  const [championships, setChampionships] = React.useState([]);
+  const [loadingChamps, setLoadingChamps] = React.useState(false);
+
+  // === SEARCH STATE ===
   const [query, setQuery] = React.useState('');
   const [champFilters, setChampFilters] = React.useState([]);
 
-  const load = React.useCallback(() => {
+  /** Carica piloti */
+  const loadPilots = React.useCallback(() => {
     setLoading(true);
     setError('');
     fetch(`${apiBase}/api/pilots`)
@@ -87,9 +89,20 @@ export default function PilotsPage({ apiBase }) {
       .finally(() => setLoading(false));
   }, [apiBase]);
 
+  /** Carica campionati dal server */
+  const loadChamps = React.useCallback(() => {
+    setLoadingChamps(true);
+    fetch(`${apiBase}/api/championships`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(json => setChampionships(json))
+      .catch(() => setChampionships([]))
+      .finally(() => setLoadingChamps(false));
+  }, [apiBase]);
+
   React.useEffect(() => {
-    load();
-  }, [load]);
+    loadPilots();
+    loadChamps();
+  }, [loadPilots, loadChamps]);
 
   const toggleChamp = (c) => {
     setChampSel(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
@@ -119,7 +132,7 @@ export default function PilotsPage({ apiBase }) {
       .then(() => {
         setName(''); setSurname(''); setTeam('');
         setChampSel([]); setPhotoDriver(null); setPhotoTeam(null);
-        load();
+        loadPilots();
       })
       .catch(e => alert(`Errore salvataggio: ${e.message}`))
       .finally(() => setSubmitting(false));
@@ -133,20 +146,13 @@ export default function PilotsPage({ apiBase }) {
       .catch(e => alert(`Errore eliminazione: ${e.message}`));
   };
 
-  /** Applica filtri di ricerca */
+  /** Filtra piloti per query e campionati */
   const filtered = React.useMemo(() => {
     const q = norm(query);
     return list.filter(p => {
-      const text =
-        norm(p.name) + ' ' +
-        norm(p.surname) + ' ' +
-        norm(p.team);
+      const text = `${norm(p.name)} ${norm(p.surname)} ${norm(p.team)}`;
       const textMatch = q.length === 0 || text.includes(q);
-
-      // se nessun campionato selezionato come filtro → passa
       if (champFilters.length === 0) return textMatch;
-
-      // altrimenti deve appartenere ad almeno un campionato selezionato
       const champs = (p.championships || []).map(norm);
       const hasAny = champFilters.some(c => champs.includes(norm(c)));
       return textMatch && hasAny;
@@ -202,33 +208,41 @@ export default function PilotsPage({ apiBase }) {
             </div>
           </div>
 
+          {/* ===== CAMPIONATI ===== */}
           <div className="form-row">
             <div className="form-col">
               <label>Campionati</label>
-              <div className="chips">
-                {CHAMPIONSHIPS.map(c => (
-                  <button
-                    type="button"
-                    key={c}
-                    className={`chip ${champSel.includes(c) ? 'active' : ''}`}
-                    onClick={() => toggleChamp(c)}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
+              {loadingChamps ? (
+                <p className="muted">Caricamento campionati…</p>
+              ) : championships.length === 0 ? (
+                <p className="muted" style={{ color: 'red' }}>Nessun campionato disponibile</p>
+              ) : (
+                <div className="chips">
+                  {championships.map((c) => (
+                    <button
+                      type="button"
+                      key={c.id}
+                      className={`chip ${champSel.includes(c.name) ? 'active' : ''}`}
+                      onClick={() => toggleChamp(c.name)}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
               <small className="muted">Seleziona uno o più campionati</small>
             </div>
           </div>
 
+          {/* ===== FOTO ===== */}
           <div className="form-row">
             <div className="form-col">
               <label>Foto Pilota</label>
-              <Dropzone label="Foto pilota" file={photoDriver} onFileChange={setPhotoDriver} accept="image/*" />
+              <Dropzone label="Foto pilota" file={photoDriver} onFileChange={setPhotoDriver} />
             </div>
             <div className="form-col">
               <label>Logo Team</label>
-              <Dropzone label="Logo team" file={photoTeam} onFileChange={setPhotoTeam} accept="image/*" />
+              <Dropzone label="Logo team" file={photoTeam} onFileChange={setPhotoTeam} />
             </div>
             <div className="form-col" />
           </div>
@@ -249,15 +263,15 @@ export default function PilotsPage({ apiBase }) {
             onChange={(e) => setQuery(e.target.value)}
           />
           <div className="chips">
-            {CHAMPIONSHIPS.map(c => (
+            {championships.map((c) => (
               <span
-                key={c}
-                className={`chip toggle ${champFilters.includes(c) ? 'active' : ''}`}
-                onClick={() => toggleFilterChamp(c)}
+                key={c.id}
+                className={`chip toggle ${champFilters.includes(c.name) ? 'active' : ''}`}
+                onClick={() => toggleFilterChamp(c.name)}
                 role="button"
                 tabIndex={0}
               >
-                {c}
+                {c.name}
               </span>
             ))}
           </div>
@@ -296,14 +310,12 @@ export default function PilotsPage({ apiBase }) {
                         ? <img src={`${apiBase}${p.photoTeamUrl}`} alt={`${p.team}`} />
                         : <div className="photo-placeholder">Team</div>}
                     </div>
-                    
                   </div>
 
                   {/* Colonna info (larga) */}
                   <div className="pilot-info wide">
                     <div className="pilot-name big">{p.name} {p.surname}</div>
                     <div className="pilot-team big">{p.team}</div>
-                    {/* Azioni (destra) */}
                     <div className="pilot-chips">
                       {(p.championships || []).map(c => (
                         <span key={c} className="chip readonly">{c}</span>

@@ -215,10 +215,55 @@ export default function RaceLive({ raceConfig, onStopRace }) {
       const trackPx = Math.max(6, widthMeters * scale);
 
       // bordo + asfalto
-      ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = trackPx + 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
-      ctx.strokeStyle = 'rgba(80,84,90,0.95)'; ctx.lineWidth = trackPx;
-      ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
+      // === BORDO ESTERNO COLORATO PER SETTORI ===
+      const sectors = circuit.customSectors || circuitData?.customSectors || initCircuit?.customSectors || [];
+
+      if (Array.isArray(sectors) && sectors.length > 0) {
+        // Disegna bordo per ciascun settore col suo colore
+        sectors.forEach((sector, idx) => {
+          if (sector.startIdx == null || sector.endIdx == null) return;
+          const start = Math.max(0, Math.min(sector.startIdx, circuit.sectors.length - 1));
+          const end = Math.max(0, Math.min(sector.endIdx, circuit.sectors.length - 1));
+          if (end <= start) return;
+
+          const color = sector.color || ['#ff0000', '#00ff00', '#0000ff'][idx % 3];
+          ctx.save();
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.strokeStyle = color;
+          ctx.lineWidth = trackPx + 3;           // spessore bordo esterno
+          ctx.globalAlpha = 0.35;                // stessa trasparenza dell’editor
+
+          ctx.beginPath();
+          for (let i = start; i <= end; i++) {
+            const p = project(circuit.sectors[i].lat, circuit.sectors[i].lon);
+            if (i === start) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+          }
+          ctx.stroke();
+          ctx.restore();
+        });
+      } else {
+        // fallback: bordo grigio uniforme
+        ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+        ctx.lineWidth = trackPx + 3;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+        ctx.closePath();
+        ctx.stroke();
+      }
+
+      // asfalto (uguale)
+      ctx.strokeStyle = 'rgba(80,84,90,0.95)';
+      ctx.lineWidth = trackPx;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+      ctx.closePath();
+      ctx.stroke();
 
       // linea start
       if (pts.length > 1) {
@@ -389,6 +434,34 @@ export default function RaceLive({ raceConfig, onStopRace }) {
           <div className="lb-sub">{leaderboard.length} piloti • tempi ultimo giro e miglior giro</div>
         </div>
 
+        {/* === INTESTAZIONE COLONNE CLASSIFICA DETTAGLIATA === */}
+        <div
+          className="lb-row"
+          style={{
+            gridTemplateColumns:
+              '28px 28px 1fr 90px 90px 90px 90px 110px 110px 140px 90px',
+            fontWeight: 800,
+            background: 'rgba(255,255,255,0.05)',
+            borderBottom: '1px solid rgba(255,255,255,0.1)',
+            color: 'rgba(206, 206, 206, 0.72)',
+            marginLeft: '10px',
+            marginRight: '10px',
+            marginTop: '15px',
+          }}
+        >
+          <div>P</div>
+          <div>Team</div>
+          <div>Pilota</div>
+          <div style={{ textAlign: 'right' }}>GAP</div>
+          <div style={{ textAlign: 'right' }}>S1</div>
+          <div style={{ textAlign: 'right' }}>S2</div>
+          <div style={{ textAlign: 'right' }}>S3</div>
+          <div style={{ textAlign: 'right' }}>Ultimo</div>
+          <div style={{ textAlign: 'right' }}>Migliore</div>
+          <div style={{ textAlign: 'right' }}>Sanzioni</div>
+          <div style={{ textAlign: 'right' }}>Giri</div>
+        </div>
+
         <div className="lb-list">
           {leaderboard.map((d, idx) => {
             const fastest = d.bestLapTime && globalBestLap && d.bestLapTime === globalBestLap;
@@ -396,7 +469,11 @@ export default function RaceLive({ raceConfig, onStopRace }) {
               <div
                 key={`wide-${d.mac}`}
                 className="lb-row"
-                style={{ gridTemplateColumns: '28px 28px 1fr 90px 110px 110px 140px 90px', cursor: 'pointer' }}
+                style={{
+                  gridTemplateColumns:
+                    '28px 28px 1fr 90px 90px 90px 90px 110px 110px 140px 90px',
+                  cursor: 'pointer',
+                }}
                 title={`${d.fullName} — Clicca per seguire`}
                 onClick={() => navigate(`/pilot/${d.mac}`)}
               >
@@ -405,17 +482,71 @@ export default function RaceLive({ raceConfig, onStopRace }) {
                   {d.photoTeamUrl ? (
                     <img src={`${API_BASE}${d.photoTeamUrl}`} alt={d.team} className="lb-team-logo" />
                   ) : (
-                    <div className="lb-team-color" style={{ background: colorsRef.current[d.mac] || colorFromName(d.fullName || d.tag || d.mac) }} />
+                    <div
+                      className="lb-team-color"
+                      style={{
+                        background:
+                          colorsRef.current[d.mac] ||
+                          colorFromName(d.fullName || d.tag || d.mac),
+                      }}
+                    />
                   )}
                 </div>
                 <div className="lb-name">{d.tag}</div>
-                <div className="lb-gap" style={{ textAlign: 'right' }}>{idx === 0 ? 'LEADER' : d.gapToLeader}</div>
-                <div className="lb-gap" title="Ultimo giro" style={{ fontWeight: 700, color: '#e9ffe0' }}>{formatLap(d.lastLapTime)}</div>
-                <div className="lb-gap" title="Miglior giro" style={{ fontWeight: 700, color: fastest ? '#b085ff' : '#e9ffe0' }}>
-                  {formatLap(d.bestLapTime)}{fastest && <span className="lb-icon purple" style={{ marginLeft: 6 }}>⏱</span>}
+
+                {/* GAP */}
+                <div className="lb-gap" style={{ textAlign: 'right' }}>
+                  {idx === 0 ? 'LEADER' : d.gapToLeader}
                 </div>
-                <div className="lb-gap" title="Penalità assegnate" style={{ fontWeight: 800 }}>{d?.penalty?.summary || '—'}</div>
-                <div className="lb-lap" style={{ textAlign: 'right' }}><span className="muted">Lap</span>&nbsp;{d.lapCount}/{snapshot?.totalLaps ?? totalLaps}</div>
+
+                {/* === TEMPI SETTORI DAL SERVER === */}
+                <div className="lb-gap" title="Settore 1" style={{ color: '#fff' }}>
+                  {formatLap(d.lastSectorTimes?.S1 ?? d.sectorTimes?.S1)}
+                </div>
+                <div className="lb-gap" title="Settore 2" style={{ color: '#fff' }}>
+                  {formatLap(d.lastSectorTimes?.S2 ?? d.sectorTimes?.S2)}
+                </div>
+                <div className="lb-gap" title="Settore 3" style={{ color: '#fff' }}>
+                  {formatLap(d.lastSectorTimes?.S3 ?? d.sectorTimes?.S3)}
+                </div>
+
+                {/* Ultimo giro */}
+                <div
+                  className="lb-gap"
+                  title="Ultimo giro"
+                  style={{ fontWeight: 700, color: '#e9ffe0' }}
+                >
+                  {formatLap(d.lastLapTime)}
+                </div>
+
+                {/* Miglior giro */}
+                <div
+                  className="lb-gap"
+                  title="Miglior giro"
+                  style={{
+                    fontWeight: 700,
+                    color: fastest ? '#b085ff' : '#e9ffe0',
+                  }}
+                >
+                  {formatLap(d.bestLapTime)}
+                  {fastest && (
+                    <span className="lb-icon purple" style={{ marginLeft: 6 }}>
+                      ⏱
+                    </span>
+                  )}
+                </div>
+
+                <div
+                  className="lb-gap"
+                  title="Penalità assegnate"
+                  style={{ fontWeight: 800 }}
+                >
+                  {d?.penalty?.summary || '—'}
+                </div>
+                <div className="lb-lap" style={{ textAlign: 'right' }}>
+                  <span className="muted">Lap</span>&nbsp;
+                  {d.lapCount}/{snapshot?.totalLaps ?? totalLaps}
+                </div>
               </div>
             );
           })}

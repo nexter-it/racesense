@@ -8,6 +8,7 @@ const dgram = require('dgram');
 const { WebSocketServer } = require('ws');
 const http = require('http');
 const { monitorEventLoopDelay, performance } = require('perf_hooks');
+const recorder = require('./raceRecorder');
 require('dotenv').config();
 
 const app = express();
@@ -24,7 +25,8 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 /* ==== Logger ==== */
 app.use((req, _res, next) => {
@@ -45,6 +47,9 @@ const DATA_DIR = path.join(__dirname, 'data');
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const PILOTS_DB = path.join(DATA_DIR, 'pilots.json');
 const CIRCUITS_DIR = path.join(DATA_DIR, 'circuiti');
+
+const CHAMPIONSHIPS_DB = path.join(DATA_DIR, 'championships.json');
+if (!fs.existsSync(CHAMPIONSHIPS_DB)) fs.writeFileSync(CHAMPIONSHIPS_DB, JSON.stringify([]), 'utf8');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -183,6 +188,97 @@ app.get('/api/circuits/:id', (req, res) => {
   }
 });
 
+/* === PUT /api/circuits/:id ===
+   Salva i settori personalizzati (customSectors)
+   ============================================== */
+app.put('/api/circuits/:id', (req, res) => {
+  try {
+    const circuitId = req.params.id;
+    const body = req.body;
+
+    if (!body || !Array.isArray(body.customSectors)) {
+      return res.status(400).json({ error: 'Campo customSectors mancante o non valido' });
+    }
+
+    if (!fs.existsSync(CIRCUITS_DIR)) {
+      return res.status(404).json({ error: 'Cartella circuiti non trovata' });
+    }
+
+    const files = fs.readdirSync(CIRCUITS_DIR).filter(f => f.toLowerCase().endsWith('.json'));
+    let filePath = null;
+    let data = null;
+
+    // 🔍 Cerca il file del circuito (per nome file o id interno)
+    for (const f of files) {
+      const full = path.join(CIRCUITS_DIR, f);
+      const j = safeReadJSON(full);
+      if (!j) continue;
+      const id = j.id || path.basename(f, '.json');
+      if (id === circuitId) {
+        filePath = full;
+        data = j;
+        break;
+      }
+    }
+
+    if (!filePath || !data) {
+      return res.status(404).json({ error: 'Circuito non trovato' });
+    }
+
+    // ✏️ Aggiorna solo i settori personalizzati
+    data.customSectors = body.customSectors;
+
+    // 💾 Salva su disco
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+
+    console.log(`[CIRCUIT] Settori aggiornati per circuito ${circuitId}`);
+
+    res.json({ ok: true, id: circuitId, sectors: body.customSectors.length });
+  } catch (err) {
+    console.error('[CIRCUIT PUT] Errore:', err);
+    res.status(500).json({ error: 'Errore salvataggio circuito' });
+  }
+});
+
+/* ==== API Campionati ==== */
+const readChampionships = () => {
+  try { return JSON.parse(fs.readFileSync(CHAMPIONSHIPS_DB, 'utf8')); }
+  catch { return []; }
+};
+const writeChampionships = (arr) => {
+  fs.writeFileSync(CHAMPIONSHIPS_DB, JSON.stringify(arr, null, 2), 'utf8');
+};
+
+// 📍 GET – restituisce tutti i campionati
+app.get('/api/championships', (_req, res) => {
+  res.json(readChampionships());
+});
+
+// 📍 POST – aggiunge un nuovo campionato (con upload opzionale)
+app.post('/api/championships', upload.single('photo'), (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Nome campionato obbligatorio' });
+    }
+
+    const championships = readChampionships();
+    const newChamp = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      name: name.trim(),
+      photo: req.file ? `/uploads/${req.file.filename}` : null,
+      createdAt: new Date().toISOString(),
+    };
+
+    championships.unshift(newChamp);
+    writeChampionships(championships);
+    res.json(championships);
+  } catch (err) {
+    console.error('[CHAMPIONSHIPS] Errore:', err);
+    res.status(500).json({ error: 'Errore nel salvataggio campionato' });
+  }
+});
+
 /* ==== WebSocket server ==== */
 const server = http.createServer(app);
 
@@ -263,25 +359,68 @@ udpServer.on('message', (msg) => {
   try {
     metrics._acc.gpsPackets++;
 
-    // Formato: MAC/LAT/LON/SATS/QUAL/SPEED_KMH/YYMMDDhhmmss[/CPUTEMP]
+    // Formato esteso: MAC/±DD.dddddd7/±DDD.dddddd7/ss/q/vv.v/YYMMDDhhmmss/ax/ay/az/gx/gy/gz/mx/my/mz/qi/qj/qk/qr/roll/pitch/yaw
+    // Formato base:   MAC/LAT/LON/SATS/QUAL/SPEED_KMH/YYMMDDhhmmss[/CPUTEMP]
     const parts = msg.toString('utf8').trim().split('/');
     if (parts.length < 7) return;
-    const [mac, latStr, lonStr, satsStr, qualStr, speedStr, ts, cpuTempStr] = parts;
 
     const gps = {
-      mac: String(mac || '').toUpperCase(),
-      lat: parseFloat(latStr),
-      lon: parseFloat(lonStr),
-      sats: parseInt(satsStr) || 0,
-      qual: parseInt(qualStr) || 0,
-      speedKmh: parseFloat(speedStr) || 0,
-      ts: ts || null,
-      cpuTemp: cpuTempStr ? parseFloat(cpuTempStr) : null,
+      mac: String(parts[0] || '').toUpperCase(),
+      lat: parseFloat(parts[1]),
+      lon: parseFloat(parts[2]),
+      sats: parseInt(parts[3]) || 0,
+      qual: parseInt(parts[4]) || 0,
+      speedKmh: parseFloat(parts[5]) || 0,
+      ts: parts[6] || null,
       receivedAt: Date.now()
     };
 
+    // Dati IMU estesi (se presenti) - salvati solo nelle registrazioni
+    if (parts.length >= 23) {
+      // Accelerometro (m/s²)
+      gps.accel = {
+        x: parseFloat(parts[7]) || 0,
+        y: parseFloat(parts[8]) || 0,
+        z: parseFloat(parts[9]) || 0
+      };
+      // Giroscopio (rad/s)
+      gps.gyro = {
+        x: parseFloat(parts[10]) || 0,
+        y: parseFloat(parts[11]) || 0,
+        z: parseFloat(parts[12]) || 0
+      };
+      // Magnetometro (μT)
+      gps.mag = {
+        x: parseFloat(parts[13]) || 0,
+        y: parseFloat(parts[14]) || 0,
+        z: parseFloat(parts[15]) || 0
+      };
+      // Quaternione (orientamento)
+      gps.quat = {
+        i: parseFloat(parts[16]) || 0,
+        j: parseFloat(parts[17]) || 0,
+        k: parseFloat(parts[18]) || 0,
+        r: parseFloat(parts[19]) || 0
+      };
+      // Angoli Eulero (gradi)
+      gps.euler = {
+        roll: parseFloat(parts[20]) || 0,
+        pitch: parseFloat(parts[21]) || 0,
+        yaw: parseFloat(parts[22]) || 0
+      };
+    } else if (parts.length >= 8) {
+      // Retrocompatibilità: cpuTemp (vecchio formato)
+      gps.cpuTemp = parseFloat(parts[7]) || null;
+    }
+
     if (Race.isActive()) {
       Race.applyGPS(gps);
+
+      // 🔴 Registra il pacchetto COMPLETO (con tutti i dati IMU)
+      if (recorder.isRecording(Race.getCurrentRaceId())) {
+        recorder.recordPacket(Race.getCurrentRaceId(), gps);
+      }
+
       tryBroadcastSnapshot(); // 20Hz
     } else {
       broadcastJSON({ type: 'gps_raw', data: gps });
@@ -305,6 +444,7 @@ const Race = (() => {
   let active = false;
   let config = null; // { circuitId, circuitData, totalLaps, assignments, pilots }
   let raceStatus = 'IN CORSO';
+  let currentRaceId = null; // ID univoco della gara corrente
   const drivers = new Map(); // mac -> driver state
 
   // Helpers
@@ -398,6 +538,7 @@ const Race = (() => {
 
   return {
     isActive: () => active,
+    getCurrentRaceId: () => currentRaceId,
     start: (payload) => {
       if (!payload?.circuitId || !payload?.assignments || !payload?.pilots) {
         throw new Error('Config gara incompleta');
@@ -414,6 +555,9 @@ const Race = (() => {
       }
       if (!circuitData?.sectors?.length) throw new Error('Circuito non trovato o privo di sectors');
 
+      // Genera ID univoco per questa gara
+      currentRaceId = `race_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
       active = true;
       raceStatus = 'IN CORSO';
       drivers.clear();
@@ -424,14 +568,19 @@ const Race = (() => {
         assignments: payload.assignments,
         pilots: payload.pilots
       };
+
       console.log('[RACE] Avviata su:', circuitData.name || config.circuitId);
+      console.log('[RACE] ID:', currentRaceId);
     },
     stop: () => {
       active = false;
+      const stoppedRaceId = currentRaceId;
+      currentRaceId = null;
       config = null;
       drivers.clear();
       raceStatus = 'FINITA';
-      console.log('[RACE] Terminata');
+      console.log('[RACE] Terminata:', stoppedRaceId);
+      return stoppedRaceId;
     },
     applyGPS: (gps) => {
       if (!active || !config?.circuitData?.sectors) return;
@@ -480,6 +629,41 @@ const Race = (() => {
           lapTimes = [...lapTimes, +lapSec.toFixed(3)];
         }
       }
+
+      // === Calcolo settori S1, S2, S3 ===
+      if (!existing.sectorTimes) {
+        existing.sectorTimes = { S1: null, S2: null, S3: null };
+        existing.sectorStartTime = Date.now();
+      }
+
+      // Imposta confini settori (3 parti uguali del tracciato)
+      const sectorSize = Math.floor(totalSectors / 3);
+      const boundaries = {
+        S1: [0, sectorSize - 1],
+        S2: [sectorSize, 2 * sectorSize - 1],
+        S3: [2 * sectorSize, totalSectors - 1]
+      };
+
+      // verifica cambio settore
+      const prevSector = existing.lastSectorZone;
+      let currentZone = null;
+      if (sectorIdx >= boundaries.S1[0] && sectorIdx <= boundaries.S1[1]) currentZone = 'S1';
+      else if (sectorIdx >= boundaries.S2[0] && sectorIdx <= boundaries.S2[1]) currentZone = 'S2';
+      else if (sectorIdx >= boundaries.S3[0] && sectorIdx <= boundaries.S3[1]) currentZone = 'S3';
+
+      // se è cambiato settore (ed esiste precedente)
+      if (prevSector && currentZone && prevSector !== currentZone) {
+        const elapsed = (Date.now() - existing.sectorStartTime) / 1000;
+        existing.sectorTimes[prevSector] = +elapsed.toFixed(3);
+        existing.sectorStartTime = Date.now();
+
+        // se finisce S3 → reset settori
+        if (prevSector === 'S3') {
+          existing.lastSectorTimes = { ...existing.sectorTimes };
+          existing.sectorTimes = { S1: null, S2: null, S3: null };
+        }
+      }
+      existing.lastSectorZone = currentZone;
 
       const updated = {
         ...existing,
@@ -548,7 +732,7 @@ const Race = (() => {
           lapCount: d.lapCount,
           lastLapTime: d.lastLapTime,
           bestLapTime: d.bestLapTime,
-          lapTimes: Array.isArray(d.lapTimes) ? d.lapTimes.slice(-50) : [], // ⬅️ includo ultimi 50
+          lapTimes: Array.isArray(d.lapTimes) ? d.lapTimes.slice(-50) : [],
           position: d.position,
           gapToLeader: d.gapToLeader,
           penalty: {
@@ -557,7 +741,9 @@ const Race = (() => {
             dq: !!d.penalties?.dq,
             summary: penaltySummary(d.penalties || {})
           },
-          gforce: d.gforce
+          gforce: d.gforce,
+          sectorTimes: d.sectorTimes || { S1: null, S2: null, S3: null },
+          lastSectorTimes: d.lastSectorTimes || { S1: null, S2: null, S3: null }
         }))
       };
     },
@@ -586,7 +772,10 @@ const Race = (() => {
           dq: !!d.penalties?.dq,
           summary: penaltySummary(d.penalties || {})
         },
-        gforce: d.gforce
+        gforce: d.gforce,
+        sectorTimes: d.sectorTimes || { S1: null, S2: null, S3: null },
+        lastSectorTimes: d.lastSectorTimes || { S1: null, S2: null, S3: null }
+
       };
     },
     initPayload: () => makeInitPayload()
@@ -599,27 +788,47 @@ app.post('/api/race/start', (req, res) => {
     if (Race.isActive()) {
       return res.status(409).json({ error: 'Gara già in corso', snapshot: Race.snapshot() });
     }
-    Race.start({
+
+    const raceConfig = {
       circuitId: String(req.body.circuitId),
       totalLaps: Number(req.body.totalLaps || 10),
       assignments: req.body.assignments || {},
       pilots: req.body.pilots || []
-    });
+    };
+
+    Race.start(raceConfig);
+
+    // 🔴 Avvia registrazione della gara
+    const raceId = Race.getCurrentRaceId();
+    recorder.startRecording(raceId, raceConfig);
 
     broadcastJSON(Race.initPayload()); // sectors una volta
     const t0 = performance.now();
     const snap = Race.snapshot();
     broadcastJSON(snap);
-    res.json({ ok: true, snapshot: snap, lastSnapshotBuildMs: +(performance.now() - t0).toFixed(2) });
+    res.json({
+      ok: true,
+      raceId: raceId,
+      snapshot: snap,
+      lastSnapshotBuildMs: +(performance.now() - t0).toFixed(2)
+    });
   } catch (e) {
     console.error('[RACE] start error', e.message);
     res.status(400).json({ error: e.message });
   }
 });
 app.post('/api/race/stop', (_req, res) => {
-  Race.stop();
+  const raceId = Race.getCurrentRaceId();
+  const finalSnapshot = Race.snapshot();
+  const stoppedRaceId = Race.stop();
+
+  // 🔴 Termina registrazione della gara
+  if (stoppedRaceId && recorder.isRecording(stoppedRaceId)) {
+    recorder.stopRecording(stoppedRaceId, finalSnapshot);
+  }
+
   broadcastJSON({ type: 'race_inactive' });
-  res.json({ ok: true });
+  res.json({ ok: true, raceId: stoppedRaceId });
 });
 app.get('/api/race/state', (_req, res) => {
   res.json(Race.snapshot());
@@ -677,6 +886,34 @@ app.get('/api/metrics', (_req, res) => {
     wsBytesPerSec: metrics.wsBytesPerSec,
     lastSnapshotBuildMs: metrics.lastSnapshotBuildMs
   });
+});
+
+/* ==== API Registrazioni ==== */
+app.get('/api/recordings', (_req, res) => {
+  try {
+    const recordings = recorder.listRecordings();
+    res.json({ ok: true, recordings });
+  } catch (e) {
+    console.error('[RECORDINGS] Errore:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/recordings/:folder', (req, res) => {
+  try {
+    const folder = req.params.folder;
+    const recordings = recorder.listRecordings();
+    const recording = recordings.find(r => r.folder === folder);
+
+    if (!recording) {
+      return res.status(404).json({ error: 'Registrazione non trovata' });
+    }
+
+    res.json({ ok: true, recording });
+  } catch (e) {
+    console.error('[RECORDINGS] Errore:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.listen(PORT, () => {

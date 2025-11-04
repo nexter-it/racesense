@@ -349,6 +349,27 @@ export default function PilotLive() {
                             <div><div className="muted">Penalità</div><div style={{ fontWeight: 900, color: 'white' }}>{driver?.penalty?.summary || '—'}</div></div>
                         </div>
 
+                        <div className="lb-row" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                            <div>
+                                <div className="muted">Settore 1</div>
+                                <div style={{ fontWeight: 900, color: 'white' }}>
+                                    {formatLap(driver?.lastSectorTimes?.S1 ?? driver?.sectorTimes?.S1)}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="muted">Settore 2</div>
+                                <div style={{ fontWeight: 900, color: 'white' }}>
+                                    {formatLap(driver?.lastSectorTimes?.S2 ?? driver?.sectorTimes?.S2)}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="muted">Settore 3</div>
+                                <div style={{ fontWeight: 900, color: 'white' }}>
+                                    {formatLap(driver?.lastSectorTimes?.S3 ?? driver?.sectorTimes?.S3)}
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="lb-row" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
                             <div><div className="muted">G-Lat</div><div style={{ fontWeight: 900, color: 'white' }}>{driver?.gforce?.lat?.toFixed?.(2) ?? '—'}</div></div>
                             <div><div className="muted">G-Long</div><div style={{ fontWeight: 900, color: 'white' }}>{driver?.gforce?.long?.toFixed?.(2) ?? '—'}</div></div>
@@ -370,7 +391,6 @@ export default function PilotLive() {
                                 )}
                             </div>
                         </div>
-
                     </div>
                 </div>
             </div>

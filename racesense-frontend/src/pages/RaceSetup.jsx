@@ -23,6 +23,29 @@ export default function RaceSetup({ onStartRace }) {
   const wsRef = useRef(null);
   const deviceTimeoutRef = useRef({});
 
+  // === NUOVO: stato query search per device ===
+  const [pilotQueryByMac, setPilotQueryByMac] = useState({}); // { [mac]: "query" }
+
+  // === helpers ricerca ===
+  const normalize = (s = '') =>
+    String(s).normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+
+  const filterPilots = (q) => {
+    const nq = normalize(q);
+    if (!nq) return [];
+    return pilots
+      .filter((p) => {
+        const full = normalize(`${p.name} ${p.surname} ${p.team || ''}`);
+        return full.includes(nq);
+      })
+      .slice(0, 8);
+  };
+
+  const selectPilotForMac = (mac, p) => {
+    setDeviceAssignments((prev) => ({ ...prev, [mac]: String(p.id) }));
+    setPilotQueryByMac((s) => ({ ...s, [mac]: '' }));
+  };
+
   // --- bootstrap dati + stato gara attuale ---
   useEffect(() => {
     fetch(`${API_BASE}/api/circuits`).then(r => r.json()).then(setCircuits).catch(console.error);
@@ -52,7 +75,6 @@ export default function RaceSetup({ onStartRace }) {
         const data = JSON.parse(event.data);
 
         if (data?.type === 'race_init') {
-          // Banner gara in corso (init arriva all’avvio o alla connessione)
           setRaceInProgress({
             totalLaps: data.totalLaps,
             raceStatus: data.raceStatus,
@@ -60,17 +82,10 @@ export default function RaceSetup({ onStartRace }) {
           });
           return;
         }
+        if (data?.type === 'race_snapshot') { setRaceInProgress(data); return; }
+        if (data?.type === 'race_inactive') { setRaceInProgress(null); return; }
 
-        if (data?.type === 'race_snapshot') {
-          setRaceInProgress(data);
-          return;
-        }
-        if (data?.type === 'race_inactive') {
-          setRaceInProgress(null);
-          return;
-        }
-
-        // gestione preview dei device “liberi” (quando non c’è gara)
+        // preview device liberi
         if (data?.type === 'gps_raw' && data?.data?.mac && data?.data?.lat && data?.data?.lon) {
           const { mac, lat, lon, speedKmh } = data.data;
           const speed = Number(speedKmh || 0);
@@ -94,11 +109,6 @@ export default function RaceSetup({ onStartRace }) {
     };
   }, []);
 
-  const assignPilotToDevice = (mac, pilotIdString) => {
-    setDeviceAssignments(prev => ({ ...prev, [mac]: pilotIdString }));
-  };
-
-  // START: se già attiva mostro banner; se non attiva, avvio.
   const handleStart = async () => {
     try {
       const s = await fetch(`${API_BASE}/api/race/state`).then(r => r.json());
@@ -152,7 +162,7 @@ export default function RaceSetup({ onStartRace }) {
         Seleziona il circuito, assegna i piloti ai device e imposta i giri.
       </p>
 
-      {/* 🔔 Banner “gara in corso” — SUBITO alla pagina /race */}
+      {/* 🔔 Banner “gara in corso” */}
       {raceInProgress && (
         <div className="pilot-form" style={{ color: 'white', borderColor: 'rgba(241,196,15,.4)', background: 'rgba(241,196,15,.08)' }}>
           <b>È già in corso una gara</b> sul circuito <b>{raceInProgress.circuit?.name || raceInProgress.circuit?.id}</b>.
@@ -228,20 +238,62 @@ export default function RaceSetup({ onStartRace }) {
                   <div className="pilot-info wide">
                     <div className="pilot-name big">Assegnazione pilota</div>
                     <div className="pilot-team big muted" style={{ marginBottom: 12 }}>{mac}</div>
+
+                    {/* === Sostituisce il select: ricerca con risultati === */}
                     <div className="form-row" style={{ gridTemplateColumns: '1fr' }}>
-                      <div className="form-col">
-                        <label className="muted">Pilota</label>
-                        <select className="input" value={assignedPilotId} onChange={(e) => setDeviceAssignments(prev => ({ ...prev, [mac]: e.target.value }))}>
-                          <option value="">-- Seleziona --</option>
-                          {pilots.map(p => <option key={p.id} value={String(p.id)}>{p.name} {p.surname} ({p.team})</option>)}
-                        </select>
+                      <div className="form-col rs-pilot-search">
+                        <label className="muted">Cerca pilota</label>
+                        <input
+                          className="input"
+                          placeholder="Digita nome o cognome…"
+                          value={pilotQueryByMac[mac] || ''}
+                          onChange={(e) => setPilotQueryByMac((s) => ({ ...s, [mac]: e.target.value }))}
+                          autoComplete="off"
+                        />
+                        {(pilotQueryByMac[mac] || '').trim() !== '' && (
+                          (() => {
+                            const results = filterPilots(pilotQueryByMac[mac]);
+                            return results.length > 0 ? (
+                              <div className="rs-pilot-results">
+                                {results.map((p) => {
+                                  const photo = p.photoDriverUrl ? `${API_BASE}${p.photoDriverUrl}` : null;
+                                  return (
+                                    <button
+                                      key={p.id}
+                                      type="button"
+                                      className="rs-pilot-item"
+                                      onClick={() => selectPilotForMac(mac, p)}
+                                    >
+                                      <div className="rs-pilot-avatar">
+                                        {photo ? <img src={photo} alt={`${p.name} ${p.surname}`} /> : <span className="rs-pilot-avatar-ph">👤</span>}
+                                      </div>
+                                      <div className="rs-pilot-texts">
+                                        <div className="rs-pilot-name">{p.name} {p.surname}</div>
+                                        <div className="rs-pilot-team muted">{p.team || '—'}</div>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="rs-pilot-results rs-empty muted">Nessun risultato</div>
+                            );
+                          })()
+                        )}
                       </div>
                     </div>
+
+                    {/* riepilogo selezione */}
                     {assignedPilot ? (
-                      <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+                      <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                        <div className="muted">
+                          Selezionato: <b style={{ color: '#fff' }}>{assignedPilot.name} {assignedPilot.surname}</b> — {assignedPilot.team || '—'}
+                        </div>
                         <button className="btn-danger" onClick={() => setDeviceAssignments(prev => ({ ...prev, [mac]: '' }))}>Rimuovi</button>
                       </div>
-                    ) : <span className="muted">non assegnato</span>}
+                    ) : (
+                      <span className="muted">non assegnato</span>
+                    )}
                   </div>
                 </div>
               );

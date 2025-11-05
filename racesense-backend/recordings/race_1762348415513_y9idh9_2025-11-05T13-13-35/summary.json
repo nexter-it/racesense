@@ -1,0 +1,150 @@
+{
+  "raceId": "race_1762348415513_y9idh9",
+  "raceName": "race_1762348415513_y9idh9_2025-11-05T13-13-35",
+  "startTime": "2025-11-05T13:13:35.514Z",
+  "endTime": "2025-11-05T13:18:51.898Z",
+  "durationSeconds": 316,
+  "packetCount": 11850,
+  "finalData": {
+    "type": "race_snapshot",
+    "ts": "2025-11-05T13:18:51.898Z",
+    "totalLaps": 10,
+    "raceStatus": "IN CORSO",
+    "leaderMac": "2CCF679AF52F",
+    "globalBestLap": null,
+    "circuit": {
+      "id": "2025-10-23T13-39-40-000Z__tracciato-ferrara-gara",
+      "name": "Extrema Kart",
+      "stats": {
+        "lengthMeters": 760.9327597575347
+      },
+      "params": {
+        "widthMeters": 10,
+        "spacingMeters": 1,
+        "minQual": 3
+      }
+    },
+    "drivers": [
+      {
+        "mac": "2CCF679AF52F",
+        "pilotId": "mhkno8dpfygr0s",
+        "fullName": "Pierpaolo Cavalli",
+        "tag": "CAVA",
+        "team": "Nexter Racing",
+        "photoTeamUrl": "/uploads/1762265995091_14600n_Screenshot_2025-11-04_alle_15.18.03.png",
+        "lat": 44.831759,
+        "lon": 11.224024,
+        "speedKmh": 0.4,
+        "sectorIdx": 8,
+        "lapCount": 0,
+        "lastLapTime": null,
+        "bestLapTime": null,
+        "lapTimes": [],
+        "position": 1,
+        "gapToLeader": "LEADER",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": -2.08,
+          "long": 1.71,
+          "vert": -0.18,
+          "total": 2.7
+        },
+        "sectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        }
+      },
+      {
+        "mac": "2CCF679AF535",
+        "pilotId": "mhknowrx1w0r7i",
+        "fullName": "Mattia Casetta",
+        "tag": "CASE",
+        "team": "Nexter Racing",
+        "photoTeamUrl": "/uploads/1762266026688_536iok_Screenshot_2025-11-04_alle_15.18.03.png",
+        "lat": 44.831758,
+        "lon": 11.224019,
+        "speedKmh": 0.8,
+        "sectorIdx": 7,
+        "lapCount": 0,
+        "lastLapTime": null,
+        "bestLapTime": null,
+        "lapTimes": [],
+        "position": 2,
+        "gapToLeader": "+0.10",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": -1.37,
+          "long": -1.17,
+          "vert": -0.52,
+          "total": 1.88
+        },
+        "sectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        }
+      },
+      {
+        "mac": "2CCF67CB6518",
+        "pilotId": "mhknqe1296spbi",
+        "fullName": "Dario Mantovani",
+        "tag": "MANT",
+        "team": "Futura Corse",
+        "photoTeamUrl": "/uploads/1762266095749_7gjf9g_Screenshot_2025-11-04_alle_15.21.12.png",
+        "lat": 44.831822,
+        "lon": 11.223986,
+        "speedKmh": 0.2,
+        "sectorIdx": 1,
+        "lapCount": 0,
+        "lastLapTime": null,
+        "bestLapTime": null,
+        "lapTimes": [],
+        "position": 3,
+        "gapToLeader": "+0.70",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": 0.95,
+          "long": -0.25,
+          "vert": -0.82,
+          "total": 1.28
+        },
+        "sectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        }
+      }
+    ]
+  }
+}

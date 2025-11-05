@@ -1,0 +1,80 @@
+{
+  "raceId": "race_1762348772674_1y2s6m",
+  "startTime": "2025-11-05T13:19:32.674Z",
+  "config": {
+    "circuitId": "2025-10-23T13-39-40-000Z__tracciato-ferrara-gara",
+    "totalLaps": 10,
+    "assignments": {
+      "2CCF679AF52F": "mhknnlvhhcoea4",
+      "2CCF67CB6518": "mhknmew7tdrvvt"
+    },
+    "pilots": [
+      {
+        "id": "mhknqe1296spbi",
+        "name": "Dario",
+        "surname": "Mantovani",
+        "team": "Futura Corse",
+        "championships": [
+          "Sprint Series",
+          "Endurance Series",
+          "Iron Series"
+        ],
+        "photoDriverUrl": "/uploads/1762266095659_mecutf_Screenshot_2025-11-04_alle_15.20.59.png",
+        "photoTeamUrl": "/uploads/1762266095749_7gjf9g_Screenshot_2025-11-04_alle_15.21.12.png",
+        "createdAt": "2025-11-04T14:21:35.750Z"
+      },
+      {
+        "id": "mhknowrx1w0r7i",
+        "name": "Mattia",
+        "surname": "Casetta",
+        "team": "Nexter Racing",
+        "championships": [
+          "Sprint Series",
+          "Iron Series",
+          "Endurance Series"
+        ],
+        "photoDriverUrl": "/uploads/1762266026623_t16pq1_Screenshot_2025-11-04_alle_15.20.03.png",
+        "photoTeamUrl": "/uploads/1762266026688_536iok_Screenshot_2025-11-04_alle_15.18.03.png",
+        "createdAt": "2025-11-04T14:20:26.733Z"
+      },
+      {
+        "id": "mhkno8dpfygr0s",
+        "name": "Pierpaolo",
+        "surname": "Cavalli",
+        "team": "Nexter Racing",
+        "championships": [
+          "Endurance Series"
+        ],
+        "photoDriverUrl": "/uploads/1762265994998_z5wqxn_Screenshot_2025-11-04_alle_15.19.31.png",
+        "photoTeamUrl": "/uploads/1762265995091_14600n_Screenshot_2025-11-04_alle_15.18.03.png",
+        "createdAt": "2025-11-04T14:19:55.117Z"
+      },
+      {
+        "id": "mhknnlvhhcoea4",
+        "name": "Simone",
+        "surname": "Nicolini",
+        "team": "Nexter Racing",
+        "championships": [
+          "Sprint Series",
+          "Endurance Series"
+        ],
+        "photoDriverUrl": "/uploads/1762265965807_oyrjfe_Screenshot_2025-11-04_alle_15.19.03.png",
+        "photoTeamUrl": "/uploads/1762265965922_374edc_Screenshot_2025-11-04_alle_15.18.03.png",
+        "createdAt": "2025-11-04T14:19:25.949Z"
+      },
+      {
+        "id": "mhknmew7tdrvvt",
+        "name": "Umberto",
+        "surname": "Pollarini",
+        "team": "Nexter Racing",
+        "championships": [
+          "Sprint Series",
+          "Iron Series"
+        ],
+        "photoDriverUrl": "/uploads/1762265910140_c8fduz_Screenshot_2025-11-04_alle_15.17.33.png",
+        "photoTeamUrl": "/uploads/1762265910205_0invlf_Screenshot_2025-11-04_alle_15.18.03.png",
+        "createdAt": "2025-11-04T14:18:30.247Z"
+      }
+    ]
+  }
+}

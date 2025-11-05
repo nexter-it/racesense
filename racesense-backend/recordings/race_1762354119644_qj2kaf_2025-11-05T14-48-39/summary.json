@@ -1,0 +1,114 @@
+{
+  "raceId": "race_1762354119644_qj2kaf",
+  "raceName": "race_1762354119644_qj2kaf_2025-11-05T14-48-39",
+  "startTime": "2025-11-05T14:48:39.645Z",
+  "endTime": "2025-11-05T15:00:21.499Z",
+  "durationSeconds": 702,
+  "packetCount": 5617,
+  "finalData": {
+    "type": "race_snapshot",
+    "ts": "2025-11-05T15:00:21.499Z",
+    "totalLaps": 10,
+    "raceStatus": "IN CORSO",
+    "leaderMac": "2CCF679AF52F",
+    "globalBestLap": 96.735,
+    "circuit": {
+      "id": "2025-10-23T13-39-40-000Z__tracciato-ferrara-gara",
+      "name": "Extrema Kart",
+      "stats": {
+        "lengthMeters": 760.9327597575347
+      },
+      "params": {
+        "widthMeters": 10,
+        "spacingMeters": 1,
+        "minQual": 3
+      }
+    },
+    "drivers": [
+      {
+        "mac": "2CCF679AF52F",
+        "pilotId": "mhknnlvhhcoea4",
+        "fullName": "Simone Nicolini",
+        "tag": "NICO",
+        "team": "Nexter Racing",
+        "photoTeamUrl": "/uploads/1762265965922_374edc_Screenshot_2025-11-04_alle_15.18.03.png",
+        "lat": 44.83171,
+        "lon": 11.224204,
+        "speedKmh": 4.4,
+        "sectorIdx": 21,
+        "lapCount": 1,
+        "lastLapTime": 96.735,
+        "bestLapTime": 96.735,
+        "lapTimes": [
+          96.735
+        ],
+        "position": 1,
+        "gapToLeader": "LEADER",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": -2.3,
+          "long": 1.45,
+          "vert": -0.46,
+          "total": 2.75
+        },
+        "sectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": 62.861,
+          "S2": 18.08,
+          "S3": 15.795
+        }
+      },
+      {
+        "mac": "2CCF67CB6518",
+        "pilotId": "mhknmew7tdrvvt",
+        "fullName": "Umberto Pollarini",
+        "tag": "POLL",
+        "team": "Nexter Racing",
+        "photoTeamUrl": "/uploads/1762265910205_0invlf_Screenshot_2025-11-04_alle_15.18.03.png",
+        "lat": 44.831825,
+        "lon": 11.224309,
+        "speedKmh": 6,
+        "sectorIdx": 21,
+        "lapCount": 1,
+        "lastLapTime": 209.269,
+        "bestLapTime": 209.269,
+        "lapTimes": [
+          209.269
+        ],
+        "position": 2,
+        "gapToLeader": "+0.00",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": -1.86,
+          "long": 0.4,
+          "vert": 0.44,
+          "total": 1.95
+        },
+        "sectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": 63.007,
+          "S2": 18.013,
+          "S3": 128.249
+        }
+      }
+    ]
+  }
+}

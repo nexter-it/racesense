@@ -1,0 +1,74 @@
+{
+  "raceId": "race_1762355858590_s4r7en",
+  "raceName": "race_1762355858590_s4r7en_2025-11-05T15-17-38",
+  "startTime": "2025-11-05T15:17:38.591Z",
+  "endTime": "2025-11-05T15:23:46.545Z",
+  "durationSeconds": 361,
+  "packetCount": 5451,
+  "finalData": {
+    "type": "race_snapshot",
+    "ts": "2025-11-05T15:23:46.545Z",
+    "totalLaps": 10,
+    "raceStatus": "IN CORSO",
+    "leaderMac": "2CCF679AF535",
+    "globalBestLap": 49.505,
+    "circuit": {
+      "id": "2025-10-23T13-39-40-000Z__tracciato-ferrara-gara",
+      "name": "Extrema Kart",
+      "stats": {
+        "lengthMeters": 760.9327597575347
+      },
+      "params": {
+        "widthMeters": 10,
+        "spacingMeters": 1,
+        "minQual": 3
+      }
+    },
+    "drivers": [
+      {
+        "mac": "2CCF679AF535",
+        "pilotId": "mhknnlvhhcoea4",
+        "fullName": "Simone Nicolini",
+        "tag": "NICO",
+        "team": "Nexter Racing",
+        "photoTeamUrl": "/uploads/1762265965922_374edc_Screenshot_2025-11-04_alle_15.18.03.png",
+        "lat": 44.831693,
+        "lon": 11.224201,
+        "speedKmh": 0.1,
+        "sectorIdx": 22,
+        "lapCount": 3,
+        "lastLapTime": 49.505,
+        "bestLapTime": 49.505,
+        "lapTimes": [
+          155.556,
+          50.284,
+          49.505
+        ],
+        "position": 1,
+        "gapToLeader": "LEADER",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": -1.83,
+          "long": 0.14,
+          "vert": 0.38,
+          "total": 1.87
+        },
+        "sectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": 17.642,
+          "S2": 16.823,
+          "S3": 15.04
+        }
+      }
+    ]
+  }
+}

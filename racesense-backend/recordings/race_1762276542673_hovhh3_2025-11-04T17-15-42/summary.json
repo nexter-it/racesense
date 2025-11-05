@@ -1,0 +1,110 @@
+{
+  "raceId": "race_1762276542673_hovhh3",
+  "raceName": "race_1762276542673_hovhh3_2025-11-04T17-15-42",
+  "startTime": "2025-11-04T17:15:42.674Z",
+  "endTime": "2025-11-04T17:15:49.215Z",
+  "durationSeconds": 7,
+  "packetCount": 2672,
+  "finalData": {
+    "type": "race_snapshot",
+    "ts": "2025-11-04T17:15:49.215Z",
+    "totalLaps": 10,
+    "raceStatus": "IN CORSO",
+    "leaderMac": "2CCF67CB6518",
+    "globalBestLap": null,
+    "circuit": {
+      "id": "2025-10-23T13-39-40-000Z__tracciato-ferrara-gara",
+      "name": "Extrema Kart",
+      "stats": {
+        "lengthMeters": 760.9327597575347
+      },
+      "params": {
+        "widthMeters": 10,
+        "spacingMeters": 1,
+        "minQual": 3
+      }
+    },
+    "drivers": [
+      {
+        "mac": "2CCF67CB6518",
+        "pilotId": "mhknqe1296spbi",
+        "fullName": "Dario Mantovani",
+        "tag": "MANT",
+        "team": "Futura Corse",
+        "photoTeamUrl": "/uploads/1762266095749_7gjf9g_Screenshot_2025-11-04_alle_15.21.12.png",
+        "lat": 44.652363,
+        "lon": 10.781421,
+        "speedKmh": 0.1,
+        "sectorIdx": 551,
+        "lapCount": 0,
+        "lastLapTime": null,
+        "bestLapTime": null,
+        "lapTimes": [],
+        "position": 1,
+        "gapToLeader": "LEADER",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": 0.62,
+          "long": -0.37,
+          "vert": -0.28,
+          "total": 0.78
+        },
+        "sectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        }
+      },
+      {
+        "mac": "2CCF679AF52F",
+        "pilotId": "mhknowrx1w0r7i",
+        "fullName": "Mattia Casetta",
+        "tag": "CASE",
+        "team": "Nexter Racing",
+        "photoTeamUrl": "/uploads/1762266026688_536iok_Screenshot_2025-11-04_alle_15.18.03.png",
+        "lat": 44.652352,
+        "lon": 10.78142,
+        "speedKmh": 0,
+        "sectorIdx": 551,
+        "lapCount": 0,
+        "lastLapTime": null,
+        "bestLapTime": null,
+        "lapTimes": [],
+        "position": 2,
+        "gapToLeader": "+0.00",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": -0.28,
+          "long": 1.11,
+          "vert": -0.02,
+          "total": 1.14
+        },
+        "sectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        }
+      }
+    ]
+  }
+}

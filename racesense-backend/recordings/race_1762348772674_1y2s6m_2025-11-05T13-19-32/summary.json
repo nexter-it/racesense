@@ -1,0 +1,121 @@
+{
+  "raceId": "race_1762348772674_1y2s6m",
+  "raceName": "race_1762348772674_1y2s6m_2025-11-05T13-19-32",
+  "startTime": "2025-11-05T13:19:32.674Z",
+  "endTime": "2025-11-05T13:44:46.030Z",
+  "durationSeconds": 1513,
+  "packetCount": 32300,
+  "finalData": {
+    "type": "race_snapshot",
+    "ts": "2025-11-05T13:44:46.030Z",
+    "totalLaps": 10,
+    "raceStatus": "IN CORSO",
+    "leaderMac": "2CCF67CB6518",
+    "globalBestLap": 46.399,
+    "circuit": {
+      "id": "2025-10-23T13-39-40-000Z__tracciato-ferrara-gara",
+      "name": "Extrema Kart",
+      "stats": {
+        "lengthMeters": 760.9327597575347
+      },
+      "params": {
+        "widthMeters": 10,
+        "spacingMeters": 1,
+        "minQual": 3
+      }
+    },
+    "drivers": [
+      {
+        "mac": "2CCF67CB6518",
+        "pilotId": "mhknmew7tdrvvt",
+        "fullName": "Umberto Pollarini",
+        "tag": "POLL",
+        "team": "Nexter Racing",
+        "photoTeamUrl": "/uploads/1762265910205_0invlf_Screenshot_2025-11-04_alle_15.18.03.png",
+        "lat": 44.831816,
+        "lon": 11.223994,
+        "speedKmh": 0,
+        "sectorIdx": 2,
+        "lapCount": 5,
+        "lastLapTime": 56.962,
+        "bestLapTime": 49.29,
+        "lapTimes": [
+          355.426,
+          49.29,
+          577.758,
+          51.324,
+          56.962
+        ],
+        "position": 1,
+        "gapToLeader": "LEADER",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": -1.63,
+          "long": -0.96,
+          "vert": 0.13,
+          "total": 1.89
+        },
+        "sectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": 18.339,
+          "S2": 18.178,
+          "S3": 20.445
+        }
+      },
+      {
+        "mac": "2CCF679AF52F",
+        "pilotId": "mhknnlvhhcoea4",
+        "fullName": "Simone Nicolini",
+        "tag": "NICO",
+        "team": "Nexter Racing",
+        "photoTeamUrl": "/uploads/1762265965922_374edc_Screenshot_2025-11-04_alle_15.18.03.png",
+        "lat": 44.831817,
+        "lon": 11.224008,
+        "speedKmh": 1.3,
+        "sectorIdx": 3,
+        "lapCount": 4,
+        "lastLapTime": 51.167,
+        "bestLapTime": 46.399,
+        "lapTimes": [
+          353.248,
+          46.983,
+          46.399,
+          51.167
+        ],
+        "position": 2,
+        "gapToLeader": "+1L",
+        "penalty": {
+          "timeSec": 0,
+          "warnings": 0,
+          "dq": false,
+          "summary": "—"
+        },
+        "gforce": {
+          "lat": -2.65,
+          "long": -2.53,
+          "vert": -0.19,
+          "total": 3.67
+        },
+        "sectorTimes": {
+          "S1": null,
+          "S2": null,
+          "S3": null
+        },
+        "lastSectorTimes": {
+          "S1": 16.001,
+          "S2": 16.685,
+          "S3": 18.481
+        }
+      }
+    ]
+  }
+}

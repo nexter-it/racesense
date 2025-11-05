@@ -268,6 +268,7 @@ app.post('/api/championships', upload.single('photo'), (req, res) => {
       name: name.trim(),
       photo: req.file ? `/uploads/${req.file.filename}` : null,
       createdAt: new Date().toISOString(),
+      formulas: []
     };
 
     championships.unshift(newChamp);
@@ -276,6 +277,81 @@ app.post('/api/championships', upload.single('photo'), (req, res) => {
   } catch (err) {
     console.error('[CHAMPIONSHIPS] Errore:', err);
     res.status(500).json({ error: 'Errore nel salvataggio campionato' });
+  }
+});
+
+// POST /api/championships/:id/formulas  -> ritorna il campionato aggiornato
+app.post('/api/championships/:id/formulas', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { label } = req.body || {};
+    if (!label || !String(label).trim()) {
+      return res.status(400).json({ error: 'Label formula obbligatoria' });
+    }
+    const championships = readChampionships();
+    const idx = championships.findIndex(c => c.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Campionato non trovato' });
+
+    const formula = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      label: String(label).trim(),
+      createdAt: new Date().toISOString()
+    };
+    championships[idx].formulas = Array.isArray(championships[idx].formulas) ? championships[idx].formulas : [];
+    championships[idx].formulas.push(formula);
+    writeChampionships(championships);
+    res.json(championships[idx]);
+  } catch (e) {
+    console.error('[CH FORMULA POST] Errore:', e);
+    res.status(500).json({ error: 'Errore aggiunta formula' });
+  }
+});
+
+// DELETE /api/championships/:id/formulas/:fid  -> ritorna il campionato aggiornato
+app.delete('/api/championships/:id/formulas/:fid', (req, res) => {
+  try {
+    const { id, fid } = req.params;
+    const championships = readChampionships();
+    const idx = championships.findIndex(c => c.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Campionato non trovato' });
+
+    const arr = Array.isArray(championships[idx].formulas) ? championships[idx].formulas : [];
+    const fidx = arr.findIndex(f => f.id === fid);
+    if (fidx === -1) return res.status(404).json({ error: 'Formula non trovata' });
+
+    arr.splice(fidx, 1);
+    championships[idx].formulas = arr;
+    writeChampionships(championships);
+    res.json(championships[idx]);
+  } catch (e) {
+    console.error('[CH FORMULA DELETE] Errore:', e);
+    res.status(500).json({ error: 'Errore eliminazione formula' });
+  }
+});
+
+// DELETE /api/championships/:id  -> ritorna l'elenco aggiornato
+app.delete('/api/championships/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const championships = readChampionships();
+    const idx = championships.findIndex(c => c.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Campionato non trovato' });
+
+    // elimina file foto se esiste
+    const photo = championships[idx].photo;
+    if (photo) {
+      const p = path.join(__dirname, photo.replace(/^\//, ''));
+      if (p.startsWith(UPLOAD_DIR) && fs.existsSync(p)) {
+        fs.unlink(p, () => { });
+      }
+    }
+
+    championships.splice(idx, 1);
+    writeChampionships(championships);
+    res.json(championships);
+  } catch (e) {
+    console.error('[CH DELETE] Errore:', e);
+    res.status(500).json({ error: 'Errore eliminazione campionato' });
   }
 });
 

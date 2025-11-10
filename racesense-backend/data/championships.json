@@ -1,5 +1,43 @@
 [
   {
+    "id": "mhos4v2x5i7a",
+    "name": "Extrema Sprint Series",
+    "photo": "/uploads/1762515353669_rbs4l1_Screenshot_2025-11-07_alle_12.35.21.png",
+    "createdAt": "2025-11-07T11:35:54.201Z",
+    "formulas": [
+      {
+        "id": "mhos57i30aiy",
+        "label": "SPORT",
+        "createdAt": "2025-11-07T11:36:10.299Z"
+      },
+      {
+        "id": "mhos5bvduod0",
+        "label": "AMATEUR",
+        "createdAt": "2025-11-07T11:36:15.961Z"
+      },
+      {
+        "id": "mhos5egdk0yi",
+        "label": "ROOKIE",
+        "createdAt": "2025-11-07T11:36:19.309Z"
+      },
+      {
+        "id": "mhos5h9iqmo5",
+        "label": "EASY",
+        "createdAt": "2025-11-07T11:36:22.950Z"
+      },
+      {
+        "id": "mhos5khci4lp",
+        "label": "JUNIOR",
+        "createdAt": "2025-11-07T11:36:27.120Z"
+      },
+      {
+        "id": "mhos5mi5lk98",
+        "label": "WOMEN",
+        "createdAt": "2025-11-07T11:36:29.741Z"
+      }
+    ]
+  },
+  {
     "id": "mhknk6tfrw17",
     "name": "Sprint Series",
     "photo": "/uploads/1762265806448_xrf7s4_Screenshot_2025-11-04_alle_15.16.23.png",
@@ -18,6 +56,12 @@
     "name": "Iron Series",
     "photo": "/uploads/1762265757367_u6zs56_Screenshot_2025-11-04_alle_15.15.34.png",
     "createdAt": "2025-11-04T14:15:57.409Z",
-    "formulas": []
+    "formulas": [
+      {
+        "id": "mhosf2hwcp74",
+        "label": "ROOKIE",
+        "createdAt": "2025-11-07T11:43:50.372Z"
+      }
+    ]
   }
 ]

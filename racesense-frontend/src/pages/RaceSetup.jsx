@@ -5,6 +5,9 @@ import '../App.css';
 const API_BASE = process.env.REACT_APP_API_BASE || `http://${window.location.hostname}:5000`;
 const WS_URL = process.env.REACT_APP_WS_URL || `ws://${window.location.hostname}:5001`;
 
+const PILOT_DEFAULT = `${API_BASE}/uploads/pilotdefault.png`;
+const TEAM_DEFAULT = `${API_BASE}/uploads/teamdefault.png`;
+
 export default function RaceSetup({ onStartRace }) {
   const [circuits, setCircuits] = useState([]);
   const [pilots, setPilots] = useState([]);
@@ -219,8 +222,14 @@ export default function RaceSetup({ onStartRace }) {
             {activeMacs.map(mac => {
               const assignedPilotId = deviceAssignments[mac] ?? '';
               const assignedPilot = pilots.find(p => String(p.id) === assignedPilotId);
-              const pilotPhotoUrl = assignedPilot?.photoDriverUrl ? `${API_BASE}${assignedPilot.photoDriverUrl}` : null;
-              const teamLogoUrl = assignedPilot?.photoTeamUrl ? `${API_BASE}${assignedPilot.photoTeamUrl}` : null;
+              // ⬇️ Sostituisci queste 2 righe dentro activeMacs.map(...)
+              const pilotPhotoUrl = assignedPilot
+                ? (assignedPilot.photoDriverUrl ? `${API_BASE}${assignedPilot.photoDriverUrl}` : PILOT_DEFAULT)
+                : null;
+
+              const teamLogoUrl = assignedPilot
+                ? (assignedPilot.photoTeamUrl ? `${API_BASE}${assignedPilot.photoTeamUrl}` : TEAM_DEFAULT)
+                : null;
 
               return (
                 <div key={mac} className="pilot-card" style={{ ...(assignedPilotId ? selectedStyle : {}), gridTemplateColumns: '140px 1fr' }}>

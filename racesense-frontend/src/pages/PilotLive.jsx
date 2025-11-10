@@ -21,9 +21,20 @@ const formatDelta = (s) => {
     return `${sign}${v.toFixed(3)}`;
 };
 
+// util geo
+const toRad = (d) => d * Math.PI / 180;
+const haversine = (lat1, lon1, lat2, lon2) => {
+    const R = 6371000;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
 export default function PilotLive() {
     const { mac } = useParams();
     const navigate = useNavigate();
+
     const [circuit, setCircuit] = useState(null);
     const [raceStatus, setRaceStatus] = useState('IN CORSO');
     const [totalLaps, setTotalLaps] = useState(0);
@@ -31,21 +42,31 @@ export default function PilotLive() {
 
     const color = useMemo(() => colorFromName(driver?.fullName || driver?.tag || mac), [driver?.fullName, driver?.tag, mac]);
 
-    // trail
+    /*** TRAIL ***/
     const trailsRef = useRef([]);
     const TRAIL_MAX_AGE_MS = 20000;
     const TRAIL_MAX_LEN = 110;
+    const TRAIL_MIN_MOVE_M = 2.5;
 
-    // canvas & interazione
+    /*** TELEMETRIA + SMOOTHING ***/
+    const telemRef = useRef(new Map());         // mac -> { lat, lon, speedKmh, ts }
+    const renderPosRef = useRef(new Map());     // mac -> { lat, lon } posizione smussata
+    const lastAnimTsRef = useRef(performance.now());
+    const SMOOTHING_BASE = 0.18;                // 0.12–0.25 più alto = più reattivo
+    const SMOOTHING_MAX_STEP_MS = 50;           // clamp dt
+    const EPS_METERS = 0.2;                     // soglia ridisegno
+
+    /*** CANVAS & INTERAZIONE ***/
     const canvasRef = useRef(null);
     const animFrameRef = useRef(null);
     const zoomRef = useRef(1);
     const panRef = useRef({ x: 0, y: 0 });
 
-    // pinch/pan
+    // touch/pinch
     const pointersRef = useRef(new Map());
     const pinchStartRef = useRef({ dist: 0, zoom: 1, last: { x: 0, y: 0 } });
 
+    /*** BOOTSTRAP DATI PILOTA (REST una tantum) ***/
     useEffect(() => {
         let cancelled = false;
         const load = async () => {
@@ -66,7 +87,14 @@ export default function PilotLive() {
                         const rc = await fetch(`${API_BASE}/api/circuits/${j.circuit.id}`);
                         if (rc.ok) {
                             const full = await rc.json();
-                            setCircuit({ id: j.circuit.id, name: full.name || j.circuit.id, stats: full.stats || {}, params: full.params || {}, sectors: full.sectors || [], customSectors: full.customSectors || [] });
+                            setCircuit({
+                                id: j.circuit.id,
+                                name: full.name || j.circuit.id,
+                                stats: full.stats || {},
+                                params: full.params || {},
+                                sectors: full.sectors || [],
+                                customSectors: full.customSectors || []
+                            });
                         } else {
                             setCircuit(j.circuit);
                         }
@@ -75,6 +103,11 @@ export default function PilotLive() {
                     }
                 } else {
                     setCircuit(null);
+                }
+
+                // inizializza posizione smussata al primo dato
+                if (j?.pilot?.lat != null && j?.pilot?.lon != null && j?.pilot?.mac) {
+                    renderPosRef.current.set(j.pilot.mac, { lat: j.pilot.lat, lon: j.pilot.lon });
                 }
             } catch (e) {
                 console.error(e);
@@ -86,12 +119,15 @@ export default function PilotLive() {
         return () => { cancelled = true; };
     }, [mac]);
 
+    /*** WEBSOCKET: SNAPSHOT (lento) + TELEMETRIA (30Hz) ***/
     useEffect(() => {
         const ws = new WebSocket(WS_URL);
+
         ws.onmessage = async (event) => {
             try {
                 const data = JSON.parse(event.data);
 
+                // init gara
                 if (data?.type === 'race_init') {
                     if (data.circuit?.sectors?.length) setCircuit(data.circuit);
                     setRaceStatus(data.raceStatus || 'IN CORSO');
@@ -99,6 +135,7 @@ export default function PilotLive() {
                     return;
                 }
 
+                // snapshot: aggiorna SOLO dati lenti/pannello (pos, lap, tempi, penalty)
                 if (data?.type === 'race_snapshot') {
                     setRaceStatus(data.raceStatus || 'IN CORSO');
                     setTotalLaps(data.totalLaps || 0);
@@ -108,7 +145,14 @@ export default function PilotLive() {
                             const rc = await fetch(`${API_BASE}/api/circuits/${data.circuit.id}`);
                             if (rc.ok) {
                                 const full = await rc.json();
-                                setCircuit({ id: data.circuit.id, name: full.name || data.circuit.id, stats: full.stats || {}, params: full.params || {}, sectors: full.sectors || [], customSectors: full.customSectors || [] });
+                                setCircuit({
+                                    id: data.circuit.id,
+                                    name: full.name || data.circuit.id,
+                                    stats: full.stats || {},
+                                    params: full.params || {},
+                                    sectors: full.sectors || [],
+                                    customSectors: full.customSectors || []
+                                });
                             } else {
                                 setCircuit(data.circuit);
                             }
@@ -119,20 +163,45 @@ export default function PilotLive() {
 
                     const d = (data.drivers || []).find(x => String(x.mac).toUpperCase() === String(mac).toUpperCase());
                     if (d) {
-                        const now = Date.now();
-                        const t = trailsRef.current || [];
-                        trailsRef.current = [...t, { lat: d.lat, lon: d.lon, ts: now }].slice(-TRAIL_MAX_LEN);
-                        setDriver(prev => ({ ...(d || {}), lapTimes: d.lapTimes ?? prev?.lapTimes ?? [] }));
+                        setDriver(prev => ({ ...(prev || {}), ...d, lapTimes: d.lapTimes ?? prev?.lapTimes ?? [] }));
+                        // opzionale: riallinea smoothing alla posizione snapshot per evitare salti post-pausa
+                        renderPosRef.current.set(d.mac, { lat: d.lat, lon: d.lon });
                     }
-                } else if (data?.type === 'race_inactive') {
-                    setRaceStatus('FINITA');
+                    return;
                 }
-            } catch { }
+
+                // telemetria: aggiorna target posizione + trail + speed live
+                if (data?.type === 'telemetry') {
+                    const me = (data.drivers || []).find(x => String(x.mac).toUpperCase() === String(mac).toUpperCase());
+                    if (me) {
+                        const now = Date.now();
+                        telemRef.current.set(me.mac, { lat: me.lat, lon: me.lon, speedKmh: me.speedKmh, ts: now });
+
+                        // trail: aggiungi punto se ci si è mossi abbastanza
+                        const trail = trailsRef.current || [];
+                        const last = trail[trail.length - 1];
+                        if (!last || haversine(last.lat, last.lon, me.lat, me.lon) >= TRAIL_MIN_MOVE_M) {
+                            trailsRef.current = [...trail, { lat: me.lat, lon: me.lon, ts: now }].slice(-TRAIL_MAX_LEN);
+                        }
+
+                        // aggiorna velocità nel pannello al volo
+                        setDriver(prev => prev ? { ...prev, speedKmh: me.speedKmh } : prev);
+                    }
+                    return;
+                }
+
+                if (data?.type === 'race_inactive') {
+                    setRaceStatus('FINITA');
+                    return;
+                }
+            } catch { /* ignore */ }
         };
+
         ws.onerror = (e) => console.error('[PilotLive] WS error', e);
         return () => { try { ws.close(); } catch { } };
     }, [mac, circuit?.sectors?.length]);
 
+    /*** CANVAS RENDER ***/
     useEffect(() => {
         if (!circuit || !Array.isArray(circuit.sectors) || circuit.sectors.length === 0 || !canvasRef.current) return;
 
@@ -140,7 +209,7 @@ export default function PilotLive() {
         const ctx = canvas.getContext('2d', { alpha: false });
         const dpr = window.devicePixelRatio || 1;
 
-        canvas.style.touchAction = 'none'; // important per iOS/Android
+        canvas.style.touchAction = 'none';
 
         const ensureSize = () => {
             const w = canvas.parentElement.clientWidth || 600;
@@ -154,7 +223,7 @@ export default function PilotLive() {
         ensureSize();
         window.addEventListener('resize', onResize);
 
-        // proiezione
+        // proiezione locale
         const lats = circuit.sectors.map(s => s.lat);
         const lons = circuit.sectors.map(s => s.lon);
         const minLat = Math.min(...lats), maxLat = Math.max(...lats);
@@ -176,7 +245,7 @@ export default function PilotLive() {
             return { x: w / 2 + dx * scale + panRef.current.x, y: h / 2 - dy * scale + panRef.current.y, scale };
         };
 
-        // wheel desktop
+        // interazione: wheel
         const onWheel = (e) => {
             e.preventDefault();
             const dir = e.deltaY > 0 ? 0.9 : 1.1;
@@ -184,7 +253,7 @@ export default function PilotLive() {
         };
         canvas.addEventListener('wheel', onWheel, { passive: false });
 
-        // pointer touch (pinch/pan)
+        // pointer touch/pinch
         const onPointerDown = (ev) => {
             canvas.setPointerCapture?.(ev.pointerId);
             pointersRef.current.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
@@ -232,7 +301,7 @@ export default function PilotLive() {
         canvas.addEventListener('pointercancel', onPointerUp);
         canvas.addEventListener('pointerleave', onPointerUp);
 
-        // render
+        // DRAW
         const draw = () => {
             ensureSize();
             const w = canvas.width / dpr, h = canvas.height / dpr;
@@ -245,8 +314,7 @@ export default function PilotLive() {
             const scale = pts[0]?.scale || 1;
             const trackPx = Math.max(6, widthMeters * scale);
 
-            // pista
-            // === BORDO ESTERNO COLORATO PER SETTORI ===
+            // bordo esterno colorato (customSectors) o fallback
             const sectors = circuit.customSectors || [];
             if (Array.isArray(sectors) && sectors.length > 0) {
                 sectors.forEach((sector, idx) => {
@@ -255,25 +323,22 @@ export default function PilotLive() {
                     const end = Math.max(0, Math.min(sector.endIdx, circuit.sectors.length - 1));
                     if (end <= start) return;
 
-                    const color = sector.color || ['#ff0000', '#00ff00', '#0000ff'][idx % 3];
+                    const c = sector.color || ['#ff0000', '#00ff00', '#0000ff'][idx % 3];
                     ctx.save();
                     ctx.lineCap = 'round';
                     ctx.lineJoin = 'round';
-                    ctx.strokeStyle = color;
+                    ctx.strokeStyle = c;
                     ctx.lineWidth = trackPx + 3;
                     ctx.globalAlpha = 0.65;
-
                     ctx.beginPath();
                     for (let i = start; i <= end; i++) {
                         const p = project(circuit.sectors[i].lat, circuit.sectors[i].lon);
-                        if (i === start) ctx.moveTo(p.x, p.y);
-                        else ctx.lineTo(p.x, p.y);
+                        if (i === start) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
                     }
                     ctx.stroke();
                     ctx.restore();
                 });
             } else {
-                // fallback: bordo uniforme tenue
                 ctx.strokeStyle = 'rgba(255,255,255,0.10)';
                 ctx.lineWidth = trackPx + 3;
                 ctx.lineCap = 'round';
@@ -294,7 +359,7 @@ export default function PilotLive() {
             ctx.closePath();
             ctx.stroke();
 
-            // start
+            // linea start
             if (pts.length > 1) {
                 const s0 = pts[0], s1 = pts[1]; const ang = Math.atan2(s1.y - s0.y, s1.x - s0.x);
                 ctx.save(); ctx.translate(s0.x, s0.y); ctx.rotate(ang);
@@ -302,7 +367,7 @@ export default function PilotLive() {
                 ctx.beginPath(); ctx.moveTo(0, -trackPx * 0.5); ctx.lineTo(0, trackPx * 0.5); ctx.stroke(); ctx.restore();
             }
 
-            // trail
+            // trail (fade con età)
             const now = Date.now();
             trailsRef.current = (trailsRef.current || []).filter(p => now - p.ts <= TRAIL_MAX_AGE_MS).slice(-TRAIL_MAX_LEN);
             const trail = trailsRef.current || [];
@@ -323,27 +388,70 @@ export default function PilotLive() {
                 }
             }
 
-            // dot
+            // dot (posizione smussata)
             if (driver) {
-                const p = project(driver.lat, driver.lon);
-                const r = Math.max(6, trackPx * 0.2);
-                let fill = color;
-                if (fill.startsWith('#')) {
-                    const hex = fill.slice(1), full = hex.length === 3 ? hex.split('').map(c => c + c).join('') : hex;
-                    const v = parseInt(full, 16), rr = (v >> 16) & 255, gg = (v >> 8) & 255, bb = v & 255;
-                    fill = `rgba(${rr},${gg},${bb},1)`;
-                }
-                ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 4;
-                ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
-                ctx.shadowBlur = 0; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+                const sm = renderPosRef.current.get(driver.mac) || (driver.lat && driver.lon ? { lat: driver.lat, lon: driver.lon } : null);
+                const live = telemRef.current.get(driver.mac);
+                const lat = sm?.lat ?? live?.lat ?? driver.lat;
+                const lon = sm?.lon ?? live?.lon ?? driver.lon;
+                if (lat != null && lon != null) {
+                    const p = project(lat, lon);
+                    const r = Math.max(6, trackPx * 0.2);
+                    let fill = color;
+                    if (fill.startsWith('#')) {
+                        const hex = fill.slice(1), full = hex.length === 3 ? hex.split('').map(c => c + c).join('') : hex;
+                        const v = parseInt(full, 16), rr = (v >> 16) & 255, gg = (v >> 8) & 255, bb = v & 255;
+                        fill = `rgba(${rr},${gg},${bb},1)`;
+                    }
+                    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 4;
+                    ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+                    ctx.shadowBlur = 0; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
 
-                ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Roboto, sans-serif'; ctx.textAlign = 'center';
-                ctx.fillText(driver.tag || 'PIL', p.x, p.y - (r + 10));
+                    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Roboto, sans-serif'; ctx.textAlign = 'center';
+                    ctx.fillText(driver.tag || 'PIL', p.x, p.y - (r + 10));
+                }
+            }
+        };
+
+        // loop animazione con smoothing
+        const animate = () => {
+            const now = performance.now();
+            const dt = Math.min(SMOOTHING_MAX_STEP_MS, now - lastAnimTsRef.current);
+            lastAnimTsRef.current = now;
+
+            let needRedraw = false;
+
+            if (driver?.mac) {
+                const live = telemRef.current.get(driver.mac);
+                if (live) {
+                    const prev = renderPosRef.current.get(driver.mac) || { lat: live.lat, lon: live.lon };
+                    const k = 1 - Math.pow(1 - SMOOTHING_BASE, dt / 16); // dipende da dt
+                    const newLat = prev.lat + (live.lat - prev.lat) * k;
+                    const newLon = prev.lon + (live.lon - prev.lon) * k;
+
+                    if (haversine(prev.lat, prev.lon, newLat, newLon) > EPS_METERS) needRedraw = true;
+                    renderPosRef.current.set(driver.mac, { lat: newLat, lon: newLon });
+                }
             }
 
-            animFrameRef.current = requestAnimationFrame(draw);
+            // invecchiamento trail
+            const nowMs = Date.now();
+            const beforeLen = trailsRef.current.length;
+            trailsRef.current = (trailsRef.current || []).filter(p => nowMs - p.ts <= TRAIL_MAX_AGE_MS).slice(-TRAIL_MAX_LEN);
+            if (trailsRef.current.length !== beforeLen) needRedraw = true;
+
+            // ridisegna solo quando serve o ogni ~33ms
+            if (needRedraw || (now - (window.__lastPilotDraw || 0)) >= 33) {
+                draw();
+                window.__lastPilotDraw = now;
+            }
+
+            animFrameRef.current = requestAnimationFrame(animate);
         };
+
+        // primo render + avvio animazione
         draw();
+        animFrameRef.current = requestAnimationFrame(animate);
 
         return () => {
             window.removeEventListener('resize', onResize);
@@ -359,7 +467,7 @@ export default function PilotLive() {
 
     return (
         <div className="main small-top">
-            {/* TOP BAR — senza bordi + riga scrollabile */}
+            {/* TOP BAR */}
             <div className="rs-live-topbar rs-live-topbar--glass">
                 <div className="rs-chip-row">
                     <span className="chip readonly pill">PILOTA</span>
@@ -377,7 +485,7 @@ export default function PilotLive() {
             <div className="rs-live-grid" style={{ gridTemplateColumns: '1fr 420px' }}>
                 <div className="track-card">
                     {!circuit?.sectors?.length && (
-                        <div style={{ position: 'absolute', inset: 0, display: 'grid', placeitems: 'center', color: '#fff' }}>
+                        <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: '#fff' }}>
                             <div className="muted">Caricamento tracciato…</div>
                         </div>
                     )}
@@ -430,12 +538,10 @@ export default function PilotLive() {
                         <div className="pilot-form" style={{ marginTop: 12 }}>
                             <div className="section-title" style={{ margin: 0, fontSize: '1.2rem' }}>Tempi di tutti i giri</div>
 
-                            {/* header compatto */}
                             <div className="lap-header">
                                 <div>#</div>
                                 <div>Tempo</div>
                                 <div>Δ best</div>
-                                {/* <div>Badge</div> */}
                             </div>
 
                             <div className="lap-list">
@@ -452,10 +558,7 @@ export default function PilotLive() {
                                                     <div className="lap-pos">{i + 1}</div>
                                                     <div className="lap-time">{formatLap(t)}</div>
                                                     <div className="lap-delta">{isPB ? '—' : formatDelta(delta)}</div>
-                                                    <div className="lap-badges">
-                                                        {isPB && <span className="badge badge-pb">PB</span>}
-                                                        {/* {isLast && <span className="badge badge-last">LS</span>} */}
-                                                    </div>
+                                                    <div className="lap-badges">{isPB && <span className="badge badge-pb">PB</span>}</div>
                                                 </div>
                                             );
                                         });

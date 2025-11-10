@@ -48,6 +48,16 @@ const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const PILOTS_DB = path.join(DATA_DIR, 'pilots.json');
 const CIRCUITS_DIR = path.join(DATA_DIR, 'circuiti');
 
+// ==== PULSE WAITLIST (file locale) ====
+const PULSE_DB = path.join(DATA_DIR, 'pulse_waitlist.json');
+if (!fs.existsSync(PULSE_DB)) fs.writeFileSync(PULSE_DB, JSON.stringify([]), 'utf8');
+
+const readPulse = () => {
+  try { return JSON.parse(fs.readFileSync(PULSE_DB, 'utf8')); }
+  catch { return []; }
+};
+const writePulse = (arr) => fs.writeFileSync(PULSE_DB, JSON.stringify(arr, null, 2), 'utf8');
+
 const CHAMPIONSHIPS_DB = path.join(DATA_DIR, 'championships.json');
 if (!fs.existsSync(CHAMPIONSHIPS_DB)) fs.writeFileSync(CHAMPIONSHIPS_DB, JSON.stringify([]), 'utf8');
 
@@ -73,23 +83,35 @@ const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 /* ==== API Piloti ==== */
 app.get('/api/pilots', (_req, res) => res.json(readPilots()));
 
+// server.js  (sostituisci SOLO il blocco dell'endpoint POST /api/pilots con questo)
+
 app.post('/api/pilots', upload.fields([
   { name: 'photoDriver', maxCount: 1 },
   { name: 'photoTeam', maxCount: 1 }
 ]), (req, res) => {
   try {
     const { name, surname, team } = req.body;
-    if (!name || !surname || !team) return res.status(400).json({ error: 'Campi obbligatori: name, surname, team' });
-
-    let championships = [];
-    if (req.body.championships) {
-      try {
-        championships = JSON.parse(req.body.championships);
-        if (!Array.isArray(championships)) championships = [];
-      } catch {
-        championships = Array.isArray(req.body.championships) ? req.body.championships : [req.body.championships];
-      }
+    if (!name || !surname || !team) {
+      return res.status(400).json({ error: 'Campi obbligatori: name, surname, team' });
     }
+
+    const championshipId = String(req.body.championshipId || '').trim();
+    const formulaId = String(req.body.formulaId || '').trim();
+    if (!championshipId) return res.status(400).json({ error: 'championshipId obbligatorio' });
+    if (!formulaId) return res.status(400).json({ error: 'formulaId obbligatorio' });
+
+    let championshipsArr = [];
+    try {
+      championshipsArr = JSON.parse(fs.readFileSync(CHAMPIONSHIPS_DB, 'utf8'));
+    } catch {
+      championshipsArr = [];
+    }
+    const champ = championshipsArr.find(c => String(c.id) === championshipId);
+    if (!champ) return res.status(400).json({ error: 'Campionato non trovato' });
+
+    const formulas = Array.isArray(champ.formulas) ? champ.formulas : [];
+    const formula = formulas.find(f => String(f.id) === formulaId);
+    if (!formula) return res.status(400).json({ error: 'Formula non trovata nel campionato selezionato' });
 
     const driverFile = req.files?.photoDriver?.[0] || null;
     const teamFile = req.files?.photoTeam?.[0] || null;
@@ -99,7 +121,8 @@ app.post('/api/pilots', upload.fields([
       name: String(name).trim(),
       surname: String(surname).trim(),
       team: String(team).trim(),
-      championships,
+      championship: { id: champ.id, name: champ.name },
+      formula: { id: formula.id, label: formula.label },
       photoDriverUrl: driverFile ? `/uploads/${driverFile.filename}` : null,
       photoTeamUrl: teamFile ? `/uploads/${teamFile.filename}` : null,
       createdAt: new Date().toISOString()
@@ -131,6 +154,46 @@ app.delete('/api/pilots/:id', (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Errore nella cancellazione' });
+  }
+});
+
+/* ==== API Pulse: registrazione waitlist ==== */
+// POST /api/pulse/register  { name, email, phone }
+app.post('/api/pulse/register', (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const phone = String(req.body?.phone || '').trim();
+
+    if (!name) return res.status(400).json({ error: 'Nome obbligatorio' });
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email))
+      return res.status(400).json({ error: 'Email non valida' });
+    if (!phone) return res.status(400).json({ error: 'Telefono obbligatorio' });
+
+    const list = readPulse();
+
+    // evita duplicati per email (case-insensitive)
+    if (list.some(e => String(e.email || '').toLowerCase() === email)) {
+      return res.status(409).json({ error: 'Email già registrata' });
+    }
+
+    const entry = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      name,
+      email,
+      phone,
+      ua: String(req.headers['user-agent'] || ''),
+      ip: req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() || req.socket?.remoteAddress || null,
+      createdAt: new Date().toISOString()
+    };
+
+    list.unshift(entry);
+    writePulse(list);
+
+    return res.status(201).json({ ok: true, id: entry.id });
+  } catch (err) {
+    console.error('[PULSE REGISTER] Errore:', err);
+    return res.status(500).json({ error: 'Errore salvataggio registrazione' });
   }
 });
 
@@ -356,18 +419,23 @@ app.delete('/api/championships/:id', (req, res) => {
 });
 
 /* ==== WebSocket server ==== */
-const server = http.createServer(app);
+// const server = http.createServer(app);
 
 // perMessageDeflate + backpressure-ready
 const wss = new WebSocketServer({
   port: WS_PORT,
   perMessageDeflate: {
     zlibDeflateOptions: { level: 6 },
-    clientNoContextTakeover: true,
-    serverNoContextTakeover: true
+    clientNoContextTakeover: false,
+    serverNoContextTakeover: false
   }
 });
 const wsClients = new Set();
+
+function installHeartbeat(ws) {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+}
 
 // === METRICHE E BROADCAST SICURO ===
 const loop = monitorEventLoopDelay({ resolution: 20 });
@@ -385,20 +453,35 @@ wss.on('connection', (ws) => {
   console.log(`[WS] Client connesso. Totale: ${wss.clients.size}`);
   wsClients.add(ws);
   metrics.wsClients = wss.clients.size;
+  installHeartbeat(ws);
+
+  // Handshake iniziale
+  try {
+    if (Race.isActive()) {
+      ws.send(JSON.stringify(Race.initPayload()));
+      ws.send(JSON.stringify(Race.snapshot())); // snapshot immediato
+    } else {
+      ws.send(JSON.stringify({ type: 'race_inactive' }));
+    }
+  } catch (_) { }
 
   ws.on('close', () => {
     wsClients.delete(ws);
     console.log(`[WS] Client disconnesso. Totale: ${wss.clients.size}`);
     metrics.wsClients = wss.clients.size;
   });
-  ws.on('error', (err) => console.error('[WS] Errore:', err.message));
 
-  if (Race.isActive()) {
-    try { ws.send(JSON.stringify(Race.initPayload())); } catch (_) { }
-  } else {
-    try { ws.send(JSON.stringify({ type: 'race_inactive' })); } catch (_) { }
-  }
+  ws.on('error', (err) => console.error('[WS] Errore:', err.message));
 });
+
+const hb = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) return ws.terminate();
+    ws.isAlive = false;
+    try { ws.ping(); } catch { }
+  });
+}, 30000);
+wss.on('close', () => clearInterval(hb));
 
 setInterval(() => {
   metrics.gpsPacketsPerSec = metrics._acc.gpsPackets;
@@ -407,27 +490,102 @@ setInterval(() => {
   metrics._acc.wsBytes = 0;
 }, 1000);
 
+/* ==== SCHEDULER: TELEMETRIA ~15Hz + SNAPSHOT 1Hz ==== */
+let telemetryTimer = null;
+let snapshotTimer = null;
+
+function startSchedulers() {
+  stopSchedulers();
+
+  telemetryTimer = setInterval(() => {
+    const telem = buildTelemetryFrame();
+    if (!telem) return;
+
+    // Backpressure: se il client è lento, salta frame vecchi
+    const str = JSON.stringify(telem);
+    wsClients.forEach(c => {
+      if (c.readyState !== 1) return;
+
+      // backpressure hard limit
+      if (c.bufferedAmount > 1_000_000) {
+        c._skipCount = (c._skipCount || 0) + 1;
+        if (c._skipCount > 100) { // ~6-7s a 15Hz
+          try { c.terminate(); } catch { }
+        }
+        return; // salta questo frame
+      }
+
+      c._skipCount = 0; // client in salute
+      try {
+        c.send(str);
+        metrics._acc.wsBytes += Buffer.byteLength(str);
+      } catch { }
+    });
+  }, 33); // ~15 Hz
+
+  snapshotTimer = setInterval(() => {
+    if (!Race.isActive()) return;
+    // Costruiamo lo snapshot solo ora (1Hz)
+    const t0 = performance.now();
+    const snap = Race.snapshot();
+    metrics.lastSnapshotBuildMs = +(performance.now() - t0).toFixed(2);
+    _broadcastString(JSON.stringify(snap));
+  }, 1000); // 1 Hz
+}
+
+function stopSchedulers() {
+  if (telemetryTimer) clearInterval(telemetryTimer);
+  if (snapshotTimer) clearInterval(snapshotTimer);
+  telemetryTimer = null;
+  snapshotTimer = null;
+  metrics.lastSnapshotBuildMs = 0;
+}
+
 function _broadcastString(str) {
   const sz = Buffer.byteLength(str);
   wsClients.forEach(c => {
     if (c.readyState !== 1) return;
-    if (c.bufferedAmount && c.bufferedAmount > 1_000_000) return;
-    try { c.send(str); metrics._acc.wsBytes += sz; } catch (_) { }
+
+    if (c.bufferedAmount && c.bufferedAmount > 1_000_000) {
+      c._skipCount = (c._skipCount || 0) + 1;
+      // soglia più permissiva perché lo snapshot è raro
+      if (c._skipCount > 10) { // ~10s a 1Hz
+        try { c.terminate(); } catch { }
+      }
+      return;
+    }
+
+    c._skipCount = 0;
+    try { c.send(str); metrics._acc.wsBytes += sz; } catch { }
   });
 }
+
 function broadcastJSON(obj) { _broadcastString(JSON.stringify(obj)); }
 
-// throttle 20 Hz degli snapshot
-let lastBroadcast = 0;
-function tryBroadcastSnapshot() {
-  const now = Date.now();
-  if (now - lastBroadcast < 50) return;
-  lastBroadcast = now;
-  const t0 = performance.now();
-  const snap = Race.snapshot();
-  metrics.lastSnapshotBuildMs = +(performance.now() - t0).toFixed(2);
-  _broadcastString(JSON.stringify(snap));
+/* ==== TELEMETRY BUILDER (batch minimale ogni ~66ms) ==== */
+function buildTelemetryFrame() {
+  if (!Race.isActive()) return null;
+  // Prendiamo solo i campi minimi necessari per il disegno fluido
+  const drivers = Race.minimalPositions(); // lo aggiungiamo in Race qui sotto
+  if (!drivers.length) return null;
+  return {
+    type: 'telemetry',
+    ts: Date.now(),
+    drivers // [{ mac, lat, lon, speedKmh }]
+  };
 }
+
+// throttle 20 Hz degli snapshot
+// let lastBroadcast = 0;
+// function tryBroadcastSnapshot() {
+//   const now = Date.now();
+//   if (now - lastBroadcast < 50) return;
+//   lastBroadcast = now;
+//   const t0 = performance.now();
+//   const snap = Race.snapshot();
+//   metrics.lastSnapshotBuildMs = +(performance.now() - t0).toFixed(2);
+//   _broadcastString(JSON.stringify(snap));
+// }
 
 /* ==== UDP Listener ==== */
 const udpServer = dgram.createSocket('udp4');
@@ -497,7 +655,7 @@ udpServer.on('message', (msg) => {
         recorder.recordPacket(Race.getCurrentRaceId(), gps);
       }
 
-      tryBroadcastSnapshot(); // 20Hz
+      // tryBroadcastSnapshot(); // 20Hz
     } else {
       broadcastJSON({ type: 'gps_raw', data: gps });
     }
@@ -532,14 +690,38 @@ const Race = (() => {
     const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
-  function closestSector(lat, lon, sectors) {
-    let min = Infinity, idx = 0;
-    for (let i = 0; i < sectors.length; i++) {
-      const s = sectors[i];
-      const d = haversine(lat, lon, s.lat, s.lon);
-      if (d < min) { min = d; idx = i; }
+  function closestSector(lat, lon, sectors, hintIdx) {
+    const toRad = d => d * Math.PI / 180;
+    const R = 6371000;
+    const hav = (a, b, c, d) => {
+      const dLat = toRad(c - a), dLon = toRad(d - b);
+      const A = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a)) * Math.cos(toRad(c)) * Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(A), Math.sqrt(1 - A));
+    };
+
+    const n = sectors.length;
+    if (!n) return 0;
+
+    // finestra locale
+    const W = Math.min(25, Math.floor(n / 8)); // adattivo
+    let bestIdx = 0, best = Infinity;
+
+    const scan = (start, end) => {
+      for (let i = start; i <= end; i++) {
+        const s = sectors[(i + n) % n];
+        const d = hav(lat, lon, s.lat, s.lon);
+        if (d < best) { best = d; bestIdx = (i + n) % n; }
+      }
+    };
+
+    if (Number.isInteger(hintIdx)) {
+      scan(hintIdx - W, hintIdx + W);
+      // se non è convincente (>25m), fallback full scan
+      if (best > 25) scan(0, n - 1);
+    } else {
+      scan(0, n - 1);
     }
-    return idx;
+    return bestIdx;
   }
   function pilotById(id) {
     return (config?.pilots || []).find(p => String(p.id) === String(id));
@@ -565,6 +747,40 @@ const Race = (() => {
         const est = Math.max(0, sectorDiff / 10);
         d.gapToLeader = `+${est.toFixed(2)}`;
       }
+    });
+  }
+  // ➕ AGGIUNGI: util per calcolare i gap su un array "ordinato" e scriverli in un campo custom
+  function computeGapsInto(sorted, field = 'gapToLeader') {
+    if (!sorted.length) return;
+    const leader = sorted[0];
+    sorted.forEach(d => {
+      if (d.mac === leader.mac) { d[field] = 'LEADER'; return; }
+      if (d.lapCount < leader.lapCount) d[field] = `+${leader.lapCount - d.lapCount}L`;
+      else {
+        const sectorDiff = leader.sectorIdx - d.sectorIdx;
+        const est = Math.max(0, sectorDiff / 10);
+        d[field] = `+${est.toFixed(2)}`;
+      }
+    });
+  }
+
+  // ➕ AGGIUNGI: ranking e gap per-formula
+  function applyClassStats(sorted) {
+    const groups = new Map();
+    sorted.forEach(d => {
+      const fid = d.formula?.id || 'NO_CLASS';
+      if (!groups.has(fid)) groups.set(fid, []);
+      groups.get(fid).push(d);
+    });
+
+    groups.forEach(arr => {
+      // ordina come la generale, ma solo nel gruppo
+      const ord = [...arr].sort((a, b) => {
+        if (a.lapCount !== b.lapCount) return b.lapCount - a.lapCount;
+        return b.sectorIdx - a.sectorIdx;
+      });
+      ord.forEach((d, i) => { d.classPosition = i + 1; });
+      computeGapsInto(ord, 'classGapToLeader');
     });
   }
   function globalBestLap() {
@@ -610,6 +826,18 @@ const Race = (() => {
         sectors: config.circuitData?.sectors || []
       }
     };
+  }
+
+  function minimalPositions() {
+    if (!active) return [];
+    // Leggiamo direttamente lo stato interno “drivers”
+    // NOTA: non ordiniamo, è solo per rendering; si usa la classifica nello snapshot
+    return Array.from(drivers.values()).map(d => ({
+      mac: d.mac,
+      lat: round6(d.lat),
+      lon: round6(d.lon),
+      speedKmh: round1(d.speed)
+    }));
   }
 
   return {
@@ -665,7 +893,7 @@ const Race = (() => {
       if (!pilotId) return;
 
       const sectors = config.circuitData.sectors;
-      const sectorIdx = closestSector(lat, lon, sectors);
+      const sectorIdx = closestSector(lat, lon, sectors, (drivers.get(mac)?.lastSectorIdx));
       const totalSectors = sectors.length;
       const pilot = (config?.pilots || []).find(p => String(p.id) === String(pilotId));
       if (!pilot) return;
@@ -677,6 +905,10 @@ const Race = (() => {
         tag: String((pilot.surname || '').toUpperCase()).slice(0, 4) || 'PIL',
         team: pilot.team,
         photoTeamUrl: pilot.photoTeamUrl || null,
+        formula: {
+          id: pilot.formula?.id || null,
+          label: pilot.formula?.label || null
+        },
         lat, lon, speed: 0,
         sectorIdx,
         lastSectorIdx: sectorIdx,
@@ -779,7 +1011,8 @@ const Race = (() => {
     snapshot: () => {
       if (!active) return { type: 'race_inactive' };
       const sorted = computeLeaderboard();
-      computeGaps(sorted);
+      computeGaps(sorted);              // gap generale (già esistente)
+      applyClassStats(sorted);          // ➕ nuovo: gap e posizione di classe
       const best = globalBestLap();
       return {
         type: 'race_snapshot',
@@ -801,6 +1034,7 @@ const Race = (() => {
           tag: d.tag,
           team: d.team,
           photoTeamUrl: d.photoTeamUrl,
+          formula: d.formula ? { id: d.formula.id, label: d.formula.label } : { id: null, label: null },
           lat: round6(d.lat),
           lon: round6(d.lon),
           speedKmh: round1(d.speed),
@@ -811,6 +1045,8 @@ const Race = (() => {
           lapTimes: Array.isArray(d.lapTimes) ? d.lapTimes.slice(-50) : [],
           position: d.position,
           gapToLeader: d.gapToLeader,
+          classPosition: d.classPosition || null,
+          classGapToLeader: d.classGapToLeader || null,
           penalty: {
             timeSec: d.penalties?.timeSec || 0,
             warnings: d.penalties?.warnings || 0,
@@ -834,6 +1070,7 @@ const Race = (() => {
         tag: d.tag,
         team: d.team,
         photoTeamUrl: d.photoTeamUrl,
+        formula: d.formula ? { id: d.formula.id, label: d.formula.label } : { id: null, label: null },
         lat: d.lat, lon: d.lon,
         speedKmh: d.speed,
         sectorIdx: d.sectorIdx,
@@ -854,6 +1091,7 @@ const Race = (() => {
 
       };
     },
+    minimalPositions,
     initPayload: () => makeInitPayload()
   };
 })();
@@ -879,6 +1117,8 @@ app.post('/api/race/start', (req, res) => {
     recorder.startRecording(raceId, raceConfig);
 
     broadcastJSON(Race.initPayload()); // sectors una volta
+    startSchedulers();
+
     const t0 = performance.now();
     const snap = Race.snapshot();
     broadcastJSON(snap);
@@ -903,7 +1143,9 @@ app.post('/api/race/stop', (_req, res) => {
     recorder.stopRecording(stoppedRaceId, finalSnapshot);
   }
 
+  stopSchedulers();
   broadcastJSON({ type: 'race_inactive' });
+
   res.json({ ok: true, raceId: stoppedRaceId });
 });
 app.get('/api/race/state', (_req, res) => {
@@ -918,10 +1160,12 @@ app.post('/api/race/status', (req, res) => {
     const snap = Race.snapshot();
     broadcastJSON(snap);
     res.json({ ok: true, lastSnapshotBuildMs: +(performance.now() - t0).toFixed(2) });
+    // try { _broadcastString(JSON.stringify(Race.snapshot())); } catch { }
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
 });
+
 app.post('/api/race/penalty', (req, res) => {
   try {
     const { mac, type } = req.body || {};
@@ -930,6 +1174,7 @@ app.post('/api/race/penalty', (req, res) => {
     const snap = Race.snapshot();
     broadcastJSON(snap);
     res.json({ ok: true, lastSnapshotBuildMs: +(performance.now() - t0).toFixed(2) });
+    // try { _broadcastString(JSON.stringify(Race.snapshot())); } catch { }
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

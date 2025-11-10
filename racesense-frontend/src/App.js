@@ -8,6 +8,8 @@ import CircuitsPage from './pages/Circuits';
 import RacePage from './pages/Race';
 import PilotLive from './pages/PilotLive'; // ⬅⬅ NUOVO
 import Championships from './pages/Championships';
+import PulsePage from './pages/Pulse';
+import AuthGate from './components/AuthGate';
 
 const API_BASE = process.env.REACT_APP_API_BASE || `http://${window.location.hostname}:5000`;
 function BackendStatusBox() {
@@ -88,6 +90,66 @@ function Home() {
           </button>
           <p className="cta-hint">Tutto pronto? Avvia lo start con semaforo virtuale.</p>
         </div>
+
+        {/* === RACESENSE PULSE (home) === */}
+        <section style={{ marginTop: '44px', paddingTop: '44px', borderTop: '1px solid var(--line)' }}>
+          <div className="pulse-hero enhanced" style={{ marginBottom: 22 }}>
+            <div className="pulse-badge">ACCESSO PRIORITARIO</div>
+            <h2 className="pulse-title" style={{ fontSize: 'clamp(1.8rem,4vw,2.6rem)' }}>
+              <span style={{ color: 'var(--brand)' }}>RACESENSE</span> PULSE
+            </h2>
+            <p className="pulse-subtitle" style={{ margin: '8px auto 0', fontSize: '1rem', maxWidth: 720 }}>
+              La piattaforma social per piloti: pubblica i tuoi tempi, confronta le performance e scala le classifiche.
+            </p>
+
+            {/* mini KPIs */}
+            {/* <div className="pulse-kpis" style={{ maxWidth: 780 }}>
+              <div className="kpi-card">
+                <div className="kpi-val">120+</div>
+                <div className="kpi-label">Circuiti</div>
+              </div>
+              <div className="kpi-card">
+                <div className="kpi-val">10k+</div>
+                <div className="kpi-label">Giri importati</div>
+              </div>
+              <div className="kpi-card">
+                <div className="kpi-val">Q2 2025</div>
+                <div className="kpi-label">Lancio</div>
+              </div>
+            </div> */}
+          </div>
+
+          {/* feature highlights */}
+          {/* <div className="pulse-features" style={{ marginTop: 18 }}>
+            <div className="pulse-feature-card">
+              <div className="pulse-feature-icon">⏱️</div>
+              <h3 className="pulse-feature-title">Pubblica i Tuoi Tempi</h3>
+              <p className="pulse-feature-desc">Storico giri, PB e progressione per circuito/veicolo.</p>
+            </div>
+            <div className="pulse-feature-card">
+              <div className="pulse-feature-icon">🏆</div>
+              <h3 className="pulse-feature-title">Sfida & Classifiche</h3>
+              <p className="pulse-feature-desc">Ranking globali/locali, filtri per classe e badge.</p>
+            </div>
+            <div className="pulse-feature-card">
+              <div className="pulse-feature-icon">📊</div>
+              <h3 className="pulse-feature-title">Analisi Avanzata</h3>
+              <p className="pulse-feature-desc">Delta, consistenza, confronto con i migliori.</p>
+            </div>
+          </div> */}
+
+          {/* CTA */}
+          <div className="cta-wrapper" style={{ marginTop: 26 }}>
+            <button
+              className="btn-primary"
+              onClick={() => navigate('/pulse')}
+              style={{ fontSize: '1.05rem', padding: '14px 26px', fontWeight: 900 }}
+            >
+              Richiedi Accesso Anticipato
+            </button>
+            <p className="cta-hint">Iscriviti ora: inviti in arrivo per la beta privata.</p>
+          </div>
+        </section>
       </main>
     </>
   );
@@ -97,6 +159,7 @@ export default function App() {
   const API_BASE = process.env.REACT_APP_API_BASE || `http://${window.location.hostname}:5000`;
   return (
     <BrowserRouter>
+      <AuthGate />
       <header className="topbar">
         <div className="topbar-left">
           <img src={logo} alt="Logo Nexter" className="brand-logo" />
@@ -113,6 +176,7 @@ export default function App() {
         <Route path="/campionati" element={<Championships />} />
         <Route path="/race" element={<RacePage />} />
         <Route path="/pilot/:mac" element={<PilotLive />} /> {/* ⬅⬅ NUOVA PAGINA */}
+        <Route path="/pulse" element={<PulsePage apiBase={API_BASE} />} />
         <Route path="*" element={<Home />} />
       </Routes>
 

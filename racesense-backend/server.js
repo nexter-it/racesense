@@ -16,6 +16,11 @@ const PORT = process.env.PORT || 5000;
 const UDP_PORT = process.env.UDP_PORT || 8888;
 const WS_PORT = process.env.WS_PORT || 5001;
 
+// === JITTER BUFFER (configurazione) ===
+const JITTER_DELAY_MS = parseInt(process.env.JITTER_DELAY_MS || '2000', 10);   // ritardo fisso
+const JITTER_FLUSH_INTERVAL_MS = parseInt(process.env.JITTER_FLUSH_INTERVAL_MS || '10', 10); // tick flush
+const JITTER_MAX_QUEUE = parseInt(process.env.JITTER_MAX_QUEUE || '100000', 10); // cap assoluto pacchetti in coda
+
 /* ==== CORS ==== */
 const corsOptions = {
   origin: true,
@@ -575,17 +580,103 @@ function buildTelemetryFrame() {
   };
 }
 
-// throttle 20 Hz degli snapshot
-// let lastBroadcast = 0;
-// function tryBroadcastSnapshot() {
-//   const now = Date.now();
-//   if (now - lastBroadcast < 50) return;
-//   lastBroadcast = now;
-//   const t0 = performance.now();
-//   const snap = Race.snapshot();
-//   metrics.lastSnapshotBuildMs = +(performance.now() - t0).toFixed(2);
-//   _broadcastString(JSON.stringify(snap));
-// }
+// Converte YYMMDDhhmmss (UTC) in epoch ms, fallback se non valido
+function parseTsToEpochMs(tsYY, fallbackMs) {
+  if (!tsYY || tsYY.length !== 12) return fallbackMs;
+  const yy = 2000 + parseInt(tsYY.slice(0, 2), 10);
+  const MM = parseInt(tsYY.slice(2, 4), 10) - 1;
+  const dd = parseInt(tsYY.slice(4, 6), 10);
+  const hh = parseInt(tsYY.slice(6, 8), 10);
+  const mm = parseInt(tsYY.slice(8, 10), 10);
+  const ss = parseInt(tsYY.slice(10, 12), 10);
+  const ms = Date.UTC(yy, MM, dd, hh, mm, ss);
+  return Number.isFinite(ms) ? ms : fallbackMs;
+}
+
+// Stato per jitter buffer
+const _jitter = {
+  // mac -> { anchorDevMs, anchorSrvMs }
+  anchors: new Map(),
+  // mac -> Array<{ emitAt:number, devMs:number, gps:object }>
+  queues: new Map(),
+  // contatore globale per cap
+  totalQueued: 0,
+  timer: null
+};
+
+function _ensureAnchor(mac, devMs, now) {
+  let a = _jitter.anchors.get(mac);
+  if (!a) {
+    a = { anchorDevMs: devMs, anchorSrvMs: now };
+    _jitter.anchors.set(mac, a);
+  }
+  return a;
+}
+
+function _enqueueJitter(gps) {
+  const now = Date.now();
+
+  // ms opzionali dal device (gps.tms 0..999)
+  const baseTs = parseTsToEpochMs(gps.ts, gps.receivedAt || now);
+  const ms = Number.isFinite(gps.tms) ? Math.max(0, Math.min(999, gps.tms)) : 0;
+  const devMs = baseTs + ms;
+
+  const a = _ensureAnchor(gps.mac, devMs, now);
+  const emitAt = a.anchorSrvMs + (devMs - a.anchorDevMs) + JITTER_DELAY_MS;
+
+  const arr = _jitter.queues.get(gps.mac) || [];
+  arr.push({ emitAt, devMs, gps });
+  _jitter.queues.set(gps.mac, arr);
+  _jitter.totalQueued++;
+
+  // Cap assoluto (drop più recente se superiamo)
+  if (_jitter.totalQueued > JITTER_MAX_QUEUE) {
+    const drop = arr.pop();
+    if (drop) _jitter.totalQueued--;
+  }
+}
+
+function _flushJitter() {
+  const now = Date.now();
+  _jitter.queues.forEach((arr, mac) => {
+    if (!arr.length) return;
+    // prendi maturi
+    const due = [];
+    const keep = [];
+    for (const it of arr) ((it.emitAt <= now) ? due : keep).push(it);
+    if (due.length) {
+      // ordine temporale del device
+      due.sort((a, b) => a.devMs - b.devMs);
+      for (const it of due) _emitGps(it.gps);
+      _jitter.totalQueued -= due.length;
+    }
+    if (keep.length) _jitter.queues.set(mac, keep); else _jitter.queues.delete(mac);
+  });
+}
+
+function _emitGps(gps) {
+  if (Race.isActive()) {
+    Race.applyGPS(gps);
+    if (recorder.isRecording(Race.getCurrentRaceId())) {
+      recorder.recordPacket(Race.getCurrentRaceId(), gps);
+    }
+  } else {
+    broadcastJSON({ type: 'gps_raw', data: gps });
+  }
+}
+
+// avvia il timer del jitter buffer
+function startJitter() {
+  if (_jitter.timer) clearInterval(_jitter.timer);
+  _jitter.timer = setInterval(_flushJitter, JITTER_FLUSH_INTERVAL_MS);
+}
+function stopJitter() {
+  if (_jitter.timer) clearInterval(_jitter.timer);
+  _jitter.timer = null;
+  _jitter.anchors.clear();
+  _jitter.queues.clear();
+  _jitter.totalQueued = 0;
+}
 
 /* ==== UDP Listener ==== */
 const udpServer = dgram.createSocket('udp4');
@@ -608,6 +699,19 @@ udpServer.on('message', (msg) => {
       ts: parts[6] || null,
       receivedAt: Date.now()
     };
+
+    // --- ms opzionali e retrocompat CPU temp ---
+    // Se parts[7] sono ms 0..999, usa gps.tms e sposta cpuTemp a [8]; altrimenti [7] è cpuTemp legacy
+    let tmsParsed = false;
+    if (parts.length >= 8 && /^\d{1,3}$/.test(parts[7])) {
+      gps.tms = parseInt(parts[7], 10) || 0; // 0..999
+      tmsParsed = true;
+    }
+    if (!tmsParsed && parts.length >= 8) {
+      gps.cpuTemp = parseFloat(parts[7]) || null;
+    } else if (tmsParsed && parts.length >= 9) {
+      gps.cpuTemp = parseFloat(parts[8]) || null;
+    }
 
     // Dati IMU estesi (se presenti) - salvati solo nelle registrazioni
     if (parts.length >= 23) {
@@ -642,23 +746,13 @@ udpServer.on('message', (msg) => {
         pitch: parseFloat(parts[21]) || 0,
         yaw: parseFloat(parts[22]) || 0
       };
-    } else if (parts.length >= 8) {
-      // Retrocompatibilità: cpuTemp (vecchio formato)
-      gps.cpuTemp = parseFloat(parts[7]) || null;
     }
+    // else if (parts.length >= 8) {
+    //   // Retrocompatibilità: cpuTemp (vecchio formato)
+    //   gps.cpuTemp = parseFloat(parts[7]) || null;
+    // }
 
-    if (Race.isActive()) {
-      Race.applyGPS(gps);
-
-      // 🔴 Registra il pacchetto COMPLETO (con tutti i dati IMU)
-      if (recorder.isRecording(Race.getCurrentRaceId())) {
-        recorder.recordPacket(Race.getCurrentRaceId(), gps);
-      }
-
-      // tryBroadcastSnapshot(); // 20Hz
-    } else {
-      broadcastJSON({ type: 'gps_raw', data: gps });
-    }
+    _enqueueJitter(gps);
   } catch (e) {
     console.error('[UDP] Errore parsing:', e.message);
   }
@@ -672,6 +766,7 @@ udpServer.on('error', (err) => {
   udpServer.close();
 });
 udpServer.bind(UDP_PORT);
+startJitter();
 
 /* ==== RACE ENGINE (in-memory) ==== */
 const Race = (() => {
@@ -1144,6 +1239,7 @@ app.post('/api/race/stop', (_req, res) => {
   }
 
   stopSchedulers();
+  stopJitter(); startJitter();
   broadcastJSON({ type: 'race_inactive' });
 
   res.json({ ok: true, raceId: stoppedRaceId });

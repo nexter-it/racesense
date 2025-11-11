@@ -22,6 +22,11 @@
   --ok: #2ecc71;
   --down: #ff6b6b;
   --checking: #f1c40f;
+  --live: #ff4d4f;
+  /* rosso live (coerente con la live-pill) */
+  --pulse: #8e85ff;
+  /* viola/pulse (coerente con badge PB) */
+  --coach: #ffc24b;
 }
 
 html,
@@ -2207,9 +2212,9 @@ body,
 
 .pulse-badge {
   display: inline-block;
-  background: rgba(192, 255, 3, 0.15);
-  border: 1px solid var(--brand);
-  color: var(--brand);
+  background: #9c97d238;
+  border: 1px solid #8D84FE;
+  color: #8D84FE;
   padding: 6px 16px;
   border-radius: 999px;
   font-size: 0.75rem;
@@ -2737,4 +2742,168 @@ body,
 /* Countdown look leggermente più forte */
 .pulse-countdown-value {
   text-shadow: 0 0 24px rgba(192, 255, 3, .25);
+}
+
+/* === Kicker "LIVE" nel titolo hero === */
+.mode-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  padding: 6px 12px;
+  font-size: clamp(.8rem, 2.2vw, .95rem);
+  font-weight: 900;
+  letter-spacing: 1px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  vertical-align: middle;
+  transform: translateY(-6px);
+}
+
+.mode-kicker--live {
+  color: var(--live);
+  border-color: rgba(255, 77, 79, 0.45);
+  box-shadow: 0 0 24px rgba(255, 77, 79, .12) inset;
+}
+
+/* parola colorata (per PULSE/COACHING) */
+.word-accent--brand {
+  color: var(--brand);
+}
+
+.word-accent--pulse {
+  color: var(--pulse);
+  text-shadow: 0 0 14px rgba(142, 133, 255, .18);
+}
+
+.word-accent--coach {
+  color: var(--coach);
+  text-shadow: 0 0 14px rgba(255, 194, 75, .18);
+}
+
+/* puntino nei badge colorati */
+.badge-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  margin-right: 8px;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.badge-dot--pulse {
+  color: var(--pulse);
+  background: currentColor;
+}
+
+.badge-dot--coach {
+  color: var(--coach);
+  background: currentColor;
+}
+
+/* === Sezione COACHING === */
+.coach-section {
+  margin-top: 44px;
+  padding-top: 44px;
+  border-top: 1px solid var(--line);
+}
+
+.coach-hero {
+  text-align: center;
+}
+
+.coach-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 194, 75, 0.12);
+  border: 1px solid rgba(255, 194, 75, 0.6);
+  color: var(--coach);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  margin-bottom: 16px;
+}
+
+.coach-title {
+  font-size: clamp(2rem, 5vw, 2.6rem);
+  font-weight: 900;
+  letter-spacing: 1.2px;
+  color: var(--fg);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.coach-subtitle {
+  color: var(--muted);
+  font-size: 1rem;
+  max-width: 780px;
+  margin: 8px auto 18px;
+  line-height: 1.6;
+}
+
+/* Cards feature coaching */
+.coach-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 18px 0 10px;
+}
+
+.coach-feature-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .02));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow);
+  text-align: left;
+  transition: transform .2s ease, border-color .2s ease, background .2s ease;
+}
+
+.coach-feature-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 194, 75, .55);
+  background: rgba(255, 255, 255, .04);
+}
+
+.coach-feature-ic {
+  font-size: 1.4rem;
+  margin-bottom: 8px;
+}
+
+.coach-feature-card h3 {
+  color: var(--coach);
+  margin: 0 0 6px;
+}
+
+.coach-feature-card p {
+  color: var(--muted);
+  margin: 0;
+}
+
+/* CTA coaching */
+.btn-coach {
+  font-size: 0.90rem;
+  background: var(--coach);
+  color: #0a0a0a;
+  border: none;
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-weight: 900;
+  letter-spacing: .6px;
+  cursor: pointer;
+  transition: transform .2s ease, box-shadow .2s ease, background .2s ease;
+}
+
+.btn-coach:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(255, 194, 75, 0.35);
+  background: #ffd06f;
+}
+
+.coach-cta {
+  margin-top: 12px;
 }

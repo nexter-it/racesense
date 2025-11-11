@@ -246,7 +246,7 @@ export default function RaceSetup({ onStartRace }) {
 
                   <div className="pilot-info wide">
                     <div className="pilot-name big">Assegnazione pilota</div>
-                    <div className="pilot-team big muted" style={{ marginBottom: 12 }}>{mac}</div>
+                    <div className="pilot-team big muted" style={{ marginBottom: 12 }}>DEVICE: {mac}</div>
 
                     {/* === Sostituisce il select: ricerca con risultati === */}
                     <div className="form-row" style={{ gridTemplateColumns: '1fr' }}>

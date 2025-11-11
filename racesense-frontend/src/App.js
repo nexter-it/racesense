@@ -1,6 +1,6 @@
 // src/App.js
 import React from 'react';
-import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import './App.css';
 import logo from './img/logonexter.png';
 import PilotsPage from './pages/Pilots';
@@ -64,8 +64,15 @@ function Home() {
       <div className="bg-glow bg-glow-1" aria-hidden="true" />
       <div className="bg-glow bg-glow-2" aria-hidden="true" />
       <main className="main">
-        <h1 className="main-title">RACESENSE<span className="title-accent" /></h1>
+        {/* === HERO con badge LIVE === */}
+        <h1 className="main-title">
+          RACESENSE
+          <span className="title-accent" />
+          <span className="title-accent" />
+          {' '}<span style={{ color: 'rgb(255 48 50)', textShadow: '0 0 18px rgb(255 0 0 / 75%)' }}>LIVE</span>
+        </h1>
         <p className="subtitle">Crea circuiti, gestisci piloti e campionati, avvia la gara con un click.</p>
+
         <section className="actions" aria-label="Azioni rapide">
           <div className="action-card" role="button" tabIndex={0} onClick={() => navigate('/circuiti')}>
             <div className="action-icon"><IconTrack className="icon" /></div>
@@ -83,6 +90,7 @@ function Home() {
             <p className="action-desc">Crea e gestisci campionati e classifiche.</p>
           </div>
         </section>
+
         <div className="cta-wrapper">
           <button className="race-btn big-cta" aria-label="Avvia gara" onClick={() => navigate('/race')}>
             <span className="cta-icon"><IconPlayFlag className="icon" /></span>
@@ -94,60 +102,50 @@ function Home() {
         {/* === RACESENSE PULSE (home) === */}
         <section style={{ marginTop: '44px', paddingTop: '44px', borderTop: '1px solid var(--line)' }}>
           <div className="pulse-hero enhanced" style={{ marginBottom: 22 }}>
-            <div className="pulse-badge">ACCESSO PRIORITARIO</div>
+            <div className="pulse-badge small"><span className="badge-dot badge-dot--pulse" />ACCESSO PRIORITARIO</div>
             <h2 className="pulse-title" style={{ fontSize: 'clamp(1.8rem,4vw,2.6rem)' }}>
-              <span style={{ color: 'var(--brand)' }}>RACESENSE</span> PULSE
+              <span className="word-accent word-accent--brand">RACESENSE</span> <span className="word-accent word-accent--pulse">PULSE</span>
             </h2>
             <p className="pulse-subtitle" style={{ margin: '8px auto 0', fontSize: '1rem', maxWidth: 720 }}>
               La piattaforma social per piloti: pubblica i tuoi tempi, confronta le performance e scala le classifiche.
             </p>
-
-            {/* mini KPIs */}
-            {/* <div className="pulse-kpis" style={{ maxWidth: 780 }}>
-              <div className="kpi-card">
-                <div className="kpi-val">120+</div>
-                <div className="kpi-label">Circuiti</div>
-              </div>
-              <div className="kpi-card">
-                <div className="kpi-val">10k+</div>
-                <div className="kpi-label">Giri importati</div>
-              </div>
-              <div className="kpi-card">
-                <div className="kpi-val">Q2 2025</div>
-                <div className="kpi-label">Lancio</div>
-              </div>
-            </div> */}
           </div>
-
-          {/* feature highlights */}
-          {/* <div className="pulse-features" style={{ marginTop: 18 }}>
-            <div className="pulse-feature-card">
-              <div className="pulse-feature-icon">⏱️</div>
-              <h3 className="pulse-feature-title">Pubblica i Tuoi Tempi</h3>
-              <p className="pulse-feature-desc">Storico giri, PB e progressione per circuito/veicolo.</p>
-            </div>
-            <div className="pulse-feature-card">
-              <div className="pulse-feature-icon">🏆</div>
-              <h3 className="pulse-feature-title">Sfida & Classifiche</h3>
-              <p className="pulse-feature-desc">Ranking globali/locali, filtri per classe e badge.</p>
-            </div>
-            <div className="pulse-feature-card">
-              <div className="pulse-feature-icon">📊</div>
-              <h3 className="pulse-feature-title">Analisi Avanzata</h3>
-              <p className="pulse-feature-desc">Delta, consistenza, confronto con i migliori.</p>
-            </div>
-          </div> */}
 
           {/* CTA */}
           <div className="cta-wrapper" style={{ marginTop: 26 }}>
             <button
               className="btn-primary"
               onClick={() => navigate('/pulse')}
-              style={{ fontSize: '1.05rem', padding: '14px 26px', fontWeight: 900 }}
+              style={{ fontSize: '0.90rem', padding: '14px 26px', fontWeight: 900 }}
             >
               Richiedi Accesso Anticipato
             </button>
             <p className="cta-hint">Iscriviti ora: inviti in arrivo per la beta privata.</p>
+          </div>
+        </section>
+
+        {/* === RACESENSE COACHING (nuova sezione) === */}
+        <section className="coach-section">
+          <div className="coach-hero">
+            <div className="coach-badge"><span className="badge-dot badge-dot--coach" />ANALYTICS PRO</div>
+            <h2 className="coach-title">
+              <span className="word-accent word-accent--brand">RACESENSE</span> <span className="word-accent word-accent--coach">COACHING</span>
+            </h2>
+            <p className="coach-subtitle">
+              Valutazione dettagliata dei tuoi dati giro per giro: telemetria, settori, consistenza, consigli pratici.
+              Allena la tecnica e migliora i tuoi tempi con insight azionabili.
+            </p>
+
+            <div className="coach-cta">
+              <button
+                className="btn-coach"
+                // onClick={() => navigate('/piloti')}
+                aria-label="Apri RACESENSE COACHING"
+              >
+                Prova una Demo
+              </button>
+              <p className="cta-hint">Disponibile a breve per i team aderenti.</p>
+            </div>
           </div>
         </section>
       </main>
@@ -163,7 +161,6 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-left">
           <img src={logo} alt="Logo Nexter" className="brand-logo" />
-          {/* <h4 className="main-title">RACESENSE<span className="title-accent" /></h4> */}
           <span className="brand-badge">v0.1 beta</span>
         </div>
         <BackendStatusBox />

@@ -181,7 +181,7 @@ export default function PulsePage({ apiBase }) {
                         PROSSIMAMENTE
                     </div>
                     <h1 className="pulse-title">
-                        RACESENSE <span style={{ color: 'var(--brand)' }}>PULSE</span>
+                        RACESENSE <span style={{ color: '#8C83FE' }}>PULSE</span>
                     </h1>
                     <p className="pulse-subtitle">
                         La piattaforma social per piloti: pubblica i tuoi tempi, confronta le performance

@@ -13,7 +13,6 @@ const formatLap = (s) => {
     const sec = (s % 60).toFixed(3);
     return `${m}:${sec.padStart(6, '0')}`;
 };
-
 const formatDelta = (s) => {
     if (s == null) return '—';
     const sign = s >= 0 ? '+' : '—';
@@ -31,6 +30,243 @@ const haversine = (lat1, lon1, lat2, lon2) => {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
+// helpers
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+
+/** ==================  G-METER  ================== */
+function GMeter({ lat = 0, long = 0, total = null, brandColor = '#C0FF03' }) {
+    // smoothing su 60fps con easing
+    const [vec, setVec] = useState({ x: 0, y: 0 });
+    const targetRef = useRef({ x: 0, y: 0 });
+    const rafRef = useRef();
+
+    // scala massima (raggio) in g: oltre viene clippato
+    const MAX_G = 3.5; // puoi alzarlo a 4-5 se vuoi
+    targetRef.current = {
+        x: clamp(lat, -MAX_G, MAX_G),
+        // y positivo = accelerazione in avanti -> pallino verso SU
+        y: clamp(-long, -MAX_G, MAX_G),
+    };
+
+    useEffect(() => {
+        const tick = () => {
+            const k = 0.18; // smoothing
+            setVec((p) => ({
+                x: lerp(p.x, targetRef.current.x, k),
+                y: lerp(p.y, targetRef.current.y, k),
+            }));
+            rafRef.current = requestAnimationFrame(tick);
+        };
+        rafRef.current = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(rafRef.current);
+    }, []);
+
+    const size = 220;
+    const r = 92;
+    const cx = size / 2;
+    const cy = size / 2;
+
+    // posizione pallino in px
+    const px = cx + (vec.x / MAX_G) * r;
+    const py = cy + (vec.y / MAX_G) * r;
+
+    // glow brand
+    const brand = brandColor;
+    const textTotal = (total ?? Math.hypot(lat, long)).toFixed(2);
+
+    return (
+        <div className="g-wrap">
+            <svg className="g-meter" width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="G meter">
+                <defs>
+                    <radialGradient id="gGlow" cx="50%" cy="50%" r="60%">
+                        <stop offset="0%" stopColor={brand} stopOpacity="0.45" />
+                        <stop offset="80%" stopColor={brand} stopOpacity="0" />
+                    </radialGradient>
+                    <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
+                        <feDropShadow dx="0" dy="2" stdDeviation="4" floodOpacity="0.35" />
+                    </filter>
+                </defs>
+
+                {/* bordo e glow */}
+                <circle cx={cx} cy={cy} r={r + 16} fill="url(#gGlow)" />
+                <circle cx={cx} cy={cy} r={r + 12} fill="rgba(0,0,0,.35)" />
+                <circle cx={cx} cy={cy} r={r + 10} fill="rgba(0,0,0,.35)" stroke="rgba(255,255,255,.08)" />
+
+                {/* anelli */}
+                {[0.25, 0.5, 0.75, 1].map((f, i) => (
+                    <circle
+                        key={i}
+                        cx={cx}
+                        cy={cy}
+                        r={r * f}
+                        fill="none"
+                        stroke="rgba(255,255,255,0.08)"
+                    />
+                ))}
+
+                {/* assi */}
+                <line x1={cx - r} y1={cy} x2={cx + r} y2={cy} stroke="rgba(255,255,255,0.18)" />
+                <line x1={cx} y1={cy - r} x2={cx} y2={cy + r} stroke="rgba(255,255,255,0.18)" />
+
+                {/* frecce N/E/S/W */}
+                {[
+                    { x: cx, y: cy - r - 8, rot: 0 }, // N
+                    { x: cx + r + 8, y: cy, rot: 90 }, // E
+                    { x: cx, y: cy + r + 8, rot: 180 }, // S
+                    { x: cx - r - 8, y: cy, rot: 270 }, // W
+                ].map((p, idx) => (
+                    <g key={idx} transform={`translate(${p.x},${p.y}) rotate(${p.rot})`}>
+                        <path d="M-6,0 L6,0 M0,-8 L0,8" stroke="rgba(255,255,255,.35)" strokeWidth="1.5" />
+                        <path d="M0,-10 L-4,-2 L4,-2 Z" fill="rgba(255,255,255,.35)" />
+                    </g>
+                ))}
+
+                {/* pallino */}
+                <g filter="url(#softShadow)">
+                    <circle cx={px} cy={py} r="10" fill={brand} />
+                    <circle cx={px} cy={py} r="6" fill={brand} opacity=".85" />
+                    <circle cx={px} cy={py} r="12" fill={brand} opacity=".18" />
+                </g>
+
+                {/* etichette */}
+                <text x={cx} y={cy + r + 34} textAnchor="middle" className="g-label">G-Lat {lat?.toFixed?.(2) ?? '—'}  ·  G-Long {long?.toFixed?.(2) ?? '—'}</text>
+                <text x={cx} y={cy} dy="5" textAnchor="middle" className="g-total">{textTotal} g</text>
+            </svg>
+        </div>
+    );
+}
+
+/** ==================  SPEED GAUGE  ================== */
+function SpeedGauge({ speed = 0, unit = 'km/h', brandColor = '#C0FF03', dynMax = 240 }) {
+    // smooth speed
+    const [val, setVal] = useState(0);
+    const rafRef = useRef();
+    const targetRef = useRef(0);
+    targetRef.current = speed;
+
+    // aggiorna scala dinamica (ma non scende bruscamente)
+    const scaleRef = useRef({ min: 0, max: dynMax });
+    const MAX_FLOOR = 160; // non scendere sotto
+    if (speed > scaleRef.current.max * 0.95) {
+        scaleRef.current.max = Math.min(360, Math.ceil(speed / 20) * 20 + 40);
+    } else if (speed < scaleRef.current.max * 0.45) {
+        scaleRef.current.max = Math.max(MAX_FLOOR, Math.ceil((scaleRef.current.max * 0.85) / 20) * 20);
+    }
+
+    useEffect(() => {
+        const tick = () => {
+            const k = 0.18;
+            setVal((p) => lerp(p, targetRef.current, k));
+            rafRef.current = requestAnimationFrame(tick);
+        };
+        rafRef.current = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(rafRef.current);
+    }, []);
+
+    const max = scaleRef.current.max;
+    const angle = (v) => {
+        const t = clamp(v / max, 0, 1);
+        // mappa 0..1 -> −120° .. +120°
+        return (-120 + 240 * t) * Math.PI / 180;
+    };
+
+    const W = 280, H = 170;
+    const cx = W / 2, cy = H - 12;
+    const R = 120;
+
+    const mkTick = (t, long = true) => {
+        const a = angle(max * t);
+        const r1 = R - (long ? 16 : 10);
+        const r2 = R + 2;
+        const x1 = cx + r1 * Math.cos(a);
+        const y1 = cy + r1 * Math.sin(a);
+        const x2 = cx + r2 * Math.cos(a);
+        const y2 = cy + r2 * Math.sin(a);
+        return <line key={t} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(255,255,255,.5)" strokeWidth={long ? 2 : 1} />;
+    };
+
+    const needleA = angle(val);
+    const nx = cx + (R - 18) * Math.cos(needleA);
+    const ny = cy + (R - 18) * Math.sin(needleA);
+
+    const brand = brandColor;
+
+    return (
+        <div className="speed-wrap">
+            <svg className="speed-gauge" width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Speed gauge">
+                <defs>
+                    <linearGradient id="sgBg" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="rgba(255,255,255,.06)" />
+                        <stop offset="100%" stopColor="rgba(255,255,255,.02)" />
+                    </linearGradient>
+                    <filter id="nShadow" x="-50%" y="-50%" width="200%" height="200%">
+                        <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.45" />
+                    </filter>
+                </defs>
+
+                {/* arco di fondo */}
+                <path
+                    d={describeArc(cx, cy, R, -120, 120)}
+                    fill="none"
+                    stroke="rgba(255,255,255,.12)"
+                    strokeWidth="16"
+                />
+                {/* arco colore marca (proporzione valore) */}
+                <path
+                    d={describeArc(cx, cy, R, -120, -120 + 240 * clamp(val / max, 0, 1))}
+                    fill="none"
+                    stroke={brand}
+                    strokeOpacity=".65"
+                    strokeWidth="10"
+                    strokeLinecap="round"
+                />
+
+                {/* tacche */}
+                {[0, .2, .4, .6, .8, 1].map(t => mkTick(t, true))}
+                {[...Array(21)].map((_, i) => {
+                    const t = i / 20;
+                    if ([0, .2, .4, .6, .8, 1].includes(t)) return null;
+                    return mkTick(t, false);
+                })}
+
+                {/* numeri grandi */}
+                {[0, .2, .4, .6, .8, 1].map((t, i) => {
+                    const a = angle(max * t);
+                    const rr = R - 34;
+                    const x = cx + rr * Math.cos(a);
+                    const y = cy + rr * Math.sin(a) + 4;
+                    const label = Math.round(max * t);
+                    return <text key={i} x={x} y={y} textAnchor="middle" className="sg-num">{label}</text>;
+                })}
+
+                {/* lancetta */}
+                <g filter="url(#nShadow)">
+                    <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="#fff" strokeWidth="3" />
+                    <circle cx={cx} cy={cy} r="7" fill={brand} />
+                </g>
+
+                {/* valore centrale */}
+                <text x={cx} y={cy - 38} textAnchor="middle" className="sg-val">{Math.round(val)}</text>
+                <text x={cx} y={cy - 18} textAnchor="middle" className="sg-unit">{unit}</text>
+            </svg>
+        </div>
+    );
+}
+
+// descrive un arco SVG (angoli in gradi)
+function describeArc(cx, cy, r, startAngle, endAngle) {
+    const s = polarToCartesian(cx, cy, r, endAngle);
+    const e = polarToCartesian(cx, cy, r, startAngle);
+    const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
+    return ['M', s.x, s.y, 'A', r, r, 0, largeArcFlag, 0, e.x, e.y].join(' ');
+}
+function polarToCartesian(cx, cy, r, angleInDegrees) {
+    const a = (angleInDegrees) * Math.PI / 180.0;
+    return { x: cx + (r * Math.cos(a)), y: cy + (r * Math.sin(a)) };
+}
+
+/** ==================  PAGINA  ================== */
 export default function PilotLive() {
     const { mac } = useParams();
     const navigate = useNavigate();
@@ -164,7 +400,6 @@ export default function PilotLive() {
                     const d = (data.drivers || []).find(x => String(x.mac).toUpperCase() === String(mac).toUpperCase());
                     if (d) {
                         setDriver(prev => ({ ...(prev || {}), ...d, lapTimes: d.lapTimes ?? prev?.lapTimes ?? [] }));
-                        // opzionale: riallinea smoothing alla posizione snapshot per evitare salti post-pausa
                         renderPosRef.current.set(d.mac, { lat: d.lat, lon: d.lon });
                     }
                     return;
@@ -177,15 +412,15 @@ export default function PilotLive() {
                         const now = Date.now();
                         telemRef.current.set(me.mac, { lat: me.lat, lon: me.lon, speedKmh: me.speedKmh, ts: now });
 
-                        // trail: aggiungi punto se ci si è mossi abbastanza
+                        // trail
                         const trail = trailsRef.current || [];
                         const last = trail[trail.length - 1];
                         if (!last || haversine(last.lat, last.lon, me.lat, me.lon) >= TRAIL_MIN_MOVE_M) {
                             trailsRef.current = [...trail, { lat: me.lat, lon: me.lon, ts: now }].slice(-TRAIL_MAX_LEN);
                         }
 
-                        // aggiorna velocità nel pannello al volo
-                        setDriver(prev => prev ? { ...prev, speedKmh: me.speedKmh } : prev);
+                        // aggiorna velocità e gforce nel pannello
+                        setDriver(prev => prev ? { ...prev, speedKmh: me.speedKmh, gforce: me.gforce || prev.gforce } : prev);
                     }
                     return;
                 }
@@ -239,13 +474,13 @@ export default function PilotLive() {
         const project = (lat, lon) => {
             const w = canvas.width / dpr, h = canvas.height / dpr;
             const maxRange = Math.max(maxDx, maxDy) * 1.1;
-            const scale = Math.min(w - padding * 2, h - padding * 2) / (maxRange * 2) * zoomRef.current;
+            const scale = Math.min(w - padding * 2, h - padding * 2) / (maxRange * 2) * (zoomRef.current);
             const dx = (lon - centerLon) * Math.PI / 180 * R * Math.cos(centerLatRad);
             const dy = (lat - centerLat) * Math.PI / 180 * R;
             return { x: w / 2 + dx * scale + panRef.current.x, y: h / 2 - dy * scale + panRef.current.y, scale };
         };
 
-        // interazione: wheel
+        // wheel zoom
         const onWheel = (e) => {
             e.preventDefault();
             const dir = e.deltaY > 0 ? 0.9 : 1.1;
@@ -253,47 +488,48 @@ export default function PilotLive() {
         };
         canvas.addEventListener('wheel', onWheel, { passive: false });
 
-        // pointer touch/pinch
+        // pointer (pan/pinch)
+        const pointersRef = new Map();
+        const pinchStartRef = { dist: 0, zoom: 1, last: { x: 0, y: 0 } };
+
         const onPointerDown = (ev) => {
             canvas.setPointerCapture?.(ev.pointerId);
-            pointersRef.current.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-            if (pointersRef.current.size === 1) {
-                pinchStartRef.current.last = { x: ev.clientX, y: ev.clientY };
-            } else if (pointersRef.current.size === 2) {
-                const pts = Array.from(pointersRef.current.values());
+            pointersRef.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+            if (pointersRef.size === 1) {
+                pinchStartRef.last = { x: ev.clientX, y: ev.clientY };
+            } else if (pointersRef.size === 2) {
+                const pts = Array.from(pointersRef.values());
                 const dx = pts[0].x - pts[1].x;
                 const dy = pts[0].y - pts[1].y;
-                pinchStartRef.current.dist = Math.hypot(dx, dy);
-                pinchStartRef.current.zoom = zoomRef.current;
+                pinchStartRef.dist = Math.hypot(dx, dy);
+                pinchStartRef.zoom = zoomRef.current;
             }
         };
         const onPointerMove = (ev) => {
-            if (!pointersRef.current.has(ev.pointerId)) return;
-            pointersRef.current.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+            if (!pointersRef.has(ev.pointerId)) return;
+            pointersRef.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
 
-            if (pointersRef.current.size === 1) {
-                const p = pointersRef.current.get(ev.pointerId);
-                panRef.current.x += p.x - pinchStartRef.current.last.x;
-                panRef.current.y += p.y - pinchStartRef.current.last.y;
-                pinchStartRef.current.last = { ...p };
-            } else if (pointersRef.current.size === 2) {
-                const pts = Array.from(pointersRef.current.values());
+            if (pointersRef.size === 1) {
+                const p = pointersRef.get(ev.pointerId);
+                panRef.current.x += p.x - pinchStartRef.last.x;
+                panRef.current.y += p.y - pinchStartRef.last.y;
+                pinchStartRef.last = { ...p };
+            } else if (pointersRef.size === 2) {
+                const pts = Array.from(pointersRef.values());
                 const dx = pts[0].x - pts[1].x;
                 const dy = pts[0].y - pts[1].y;
                 const dist = Math.hypot(dx, dy);
-                if (pinchStartRef.current.dist > 0) {
-                    const ratio = dist / pinchStartRef.current.dist;
-                    zoomRef.current = Math.max(0.5, Math.min(6, pinchStartRef.current.zoom * ratio));
+                if (pinchStartRef.dist > 0) {
+                    const ratio = dist / pinchStartRef.dist;
+                    zoomRef.current = Math.max(0.5, Math.min(6, pinchStartRef.zoom * ratio));
                 }
             }
             ev.preventDefault();
         };
         const onPointerUp = (ev) => {
             canvas.releasePointerCapture?.(ev.pointerId);
-            pointersRef.current.delete(ev.pointerId);
-            if (pointersRef.current.size < 2) {
-                pinchStartRef.current.dist = 0;
-            }
+            pointersRef.delete(ev.pointerId);
+            if (pointersRef.size < 2) pinchStartRef.dist = 0;
         };
         canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
         canvas.addEventListener('pointermove', onPointerMove, { passive: false });
@@ -314,7 +550,7 @@ export default function PilotLive() {
             const scale = pts[0]?.scale || 1;
             const trackPx = Math.max(6, widthMeters * scale);
 
-            // bordo esterno colorato (customSectors) o fallback
+            // bordo esterno
             const sectors = circuit.customSectors || [];
             if (Array.isArray(sectors) && sectors.length > 0) {
                 sectors.forEach((sector, idx) => {
@@ -367,7 +603,7 @@ export default function PilotLive() {
                 ctx.beginPath(); ctx.moveTo(0, -trackPx * 0.5); ctx.lineTo(0, trackPx * 0.5); ctx.stroke(); ctx.restore();
             }
 
-            // trail (fade con età)
+            // trail
             const now = Date.now();
             trailsRef.current = (trailsRef.current || []).filter(p => now - p.ts <= TRAIL_MAX_AGE_MS).slice(-TRAIL_MAX_LEN);
             const trail = trailsRef.current || [];
@@ -388,7 +624,7 @@ export default function PilotLive() {
                 }
             }
 
-            // dot (posizione smussata)
+            // dot
             if (driver) {
                 const sm = renderPosRef.current.get(driver.mac) || (driver.lat && driver.lon ? { lat: driver.lat, lon: driver.lon } : null);
                 const live = telemRef.current.get(driver.mac);
@@ -396,7 +632,7 @@ export default function PilotLive() {
                 const lon = sm?.lon ?? live?.lon ?? driver.lon;
                 if (lat != null && lon != null) {
                     const p = project(lat, lon);
-                    const r = Math.max(6, trackPx * 0.2);
+                    const rDot = Math.max(6, trackPx * 0.2);
                     let fill = color;
                     if (fill.startsWith('#')) {
                         const hex = fill.slice(1), full = hex.length === 3 ? hex.split('').map(c => c + c).join('') : hex;
@@ -404,11 +640,11 @@ export default function PilotLive() {
                         fill = `rgba(${rr},${gg},${bb},1)`;
                     }
                     ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 4;
-                    ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(p.x, p.y, rDot, 0, Math.PI * 2); ctx.fill();
                     ctx.shadowBlur = 0; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
 
                     ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Roboto, sans-serif'; ctx.textAlign = 'center';
-                    ctx.fillText(driver.tag || 'PIL', p.x, p.y - (r + 10));
+                    ctx.fillText(driver.tag || 'PIL', p.x, p.y - (rDot + 10));
                 }
             }
         };
@@ -425,7 +661,7 @@ export default function PilotLive() {
                 const live = telemRef.current.get(driver.mac);
                 if (live) {
                     const prev = renderPosRef.current.get(driver.mac) || { lat: live.lat, lon: live.lon };
-                    const k = 1 - Math.pow(1 - SMOOTHING_BASE, dt / 16); // dipende da dt
+                    const k = 1 - Math.pow(1 - SMOOTHING_BASE, dt / 16);
                     const newLat = prev.lat + (live.lat - prev.lat) * k;
                     const newLon = prev.lon + (live.lon - prev.lon) * k;
 
@@ -440,7 +676,6 @@ export default function PilotLive() {
             trailsRef.current = (trailsRef.current || []).filter(p => nowMs - p.ts <= TRAIL_MAX_AGE_MS).slice(-TRAIL_MAX_LEN);
             if (trailsRef.current.length !== beforeLen) needRedraw = true;
 
-            // ridisegna solo quando serve o ogni ~33ms
             if (needRedraw || (now - (window.__lastPilotDraw || 0)) >= 33) {
                 draw();
                 window.__lastPilotDraw = now;
@@ -449,7 +684,6 @@ export default function PilotLive() {
             animFrameRef.current = requestAnimationFrame(animate);
         };
 
-        // primo render + avvio animazione
         draw();
         animFrameRef.current = requestAnimationFrame(animate);
 
@@ -465,19 +699,23 @@ export default function PilotLive() {
         };
     }, [circuit, driver, color]);
 
+    const gLat = driver?.gforce?.lat ?? 0;
+    const gLong = driver?.gforce?.long ?? 0;
+    const gTot = driver?.gforce?.total ?? Math.hypot(gLat || 0, gLong || 0);
+
     return (
         <div className="main small-top">
             {/* TOP BAR */}
             <div className="rs-live-topbar rs-live-topbar--glass">
                 <div className="rs-chip-row">
-                    <span className="chip readonly pill">PILOTA</span>
+                    {/* <span className="chip readonly pill">PILOTA</span> */}
                     <span className="chip readonly pill" style={{ fontWeight: 800 }}>{driver?.tag || mac}</span>
                     <span className="chip readonly pill">{driver?.fullName || '—'}</span>
-                    <span className="chip readonly pill">{totalLaps} giri</span>
+                    {/* <span className="chip readonly pill">{totalLaps} giri</span> */}
                     <span className="chip readonly pill" style={{ background: 'rgba(21,193,48,.22)', color: '#dfffe9', fontWeight: 900 }}>{raceStatus}</span>
-                    <span className="chip readonly pill">{circuit?.name || circuit?.id || 'Circuito'}</span>
-                    {circuit?.stats?.lengthMeters && <span className="chip readonly pill">{circuit.stats.lengthMeters.toFixed(0)} m</span>}
-                    {circuit?.params?.widthMeters && <span className="chip readonly pill">{circuit.params.widthMeters} m larghezza</span>}
+                    {/* <span className="chip readonly pill">{circuit?.name || circuit?.id || 'Circuito'}</span> */}
+                    {/* {circuit?.stats?.lengthMeters && <span className="chip readonly pill">{circuit.stats.lengthMeters.toFixed(0)} m</span>}
+                    {circuit?.params?.widthMeters && <span className="chip readonly pill">{circuit.params.widthMeters} m larghezza</span>} */}
                     <button className="btn-ghost" onClick={() => navigate('/race')} style={{ whiteSpace: 'nowrap' }}>⬅ Torna alla gara</button>
                 </div>
             </div>
@@ -495,19 +733,32 @@ export default function PilotLive() {
                 <div className="leaderboard-card">
                     <div className="lb-header"><div className="lb-title">DETTAGLI PILOTA</div></div>
                     <div className="lb-list" style={{ maxHeight: 'unset' }}>
-                        <div className="lb-row" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                        {/* === TELEMETRIA GRAFICA === */}
+                        <div className="telemetry-grid">
+                            <div className="telem-card">
+                                {/* <div className="telem-title">Velocità</div> */}
+                                <SpeedGauge speed={driver?.speedKmh ?? 0} unit="km/h" brandColor={color} />
+                            </div>
+                            <div className="telem-card">
+                                {/* <div className="telem-title">Forza G</div> */}
+                                <GMeter lat={gLat} long={gLong} total={gTot} brandColor={color} />
+                            </div>
+                        </div>
+
+                        {/* === INFO TESTUALI (rimangono) === */}
+                        <div className="lb-row" style={{ gridTemplateColumns: '1fr 1fr 1fr', border: 'none', background: 'none' }}>
                             <div><div className="muted">Posizione</div><div style={{ fontWeight: 900, color: 'white' }}>{driver?.position ?? '—'}</div></div>
                             <div><div className="muted">Lap</div><div style={{ fontWeight: 900, color: 'white' }}>{driver?.lapCount ?? 0}/{totalLaps}</div></div>
                             <div><div className="muted">Velocità</div><div style={{ fontWeight: 900, color: 'white' }}>{(driver?.speedKmh ?? 0).toFixed(1)} km/h</div></div>
                         </div>
 
-                        <div className="lb-row" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                        <div className="lb-row" style={{ gridTemplateColumns: '1fr 1fr 1fr', border: 'none', background: 'none' }}>
                             <div><div className="muted">Ultimo giro</div><div style={{ fontWeight: 900, color: 'white' }}>{formatLap(driver?.lastLapTime)}</div></div>
                             <div><div className="muted">Miglior giro</div><div style={{ fontWeight: 900, color: 'white' }}>{formatLap(driver?.bestLapTime)}</div></div>
                             <div><div className="muted">Penalità</div><div style={{ fontWeight: 900, color: 'white' }}>{driver?.penalty?.summary || '—'}</div></div>
                         </div>
 
-                        <div className="lb-row" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                        <div className="lb-row" style={{ gridTemplateColumns: '1fr 1fr 1fr', border: 'none', background: 'none' }}>
                             <div>
                                 <div className="muted">Settore 1</div>
                                 <div style={{ fontWeight: 900, color: 'white' }}>
@@ -528,14 +779,14 @@ export default function PilotLive() {
                             </div>
                         </div>
 
-                        <div className="lb-row" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
+                        {/* <div className="lb-row" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
                             <div><div className="muted">G-Lat</div><div style={{ fontWeight: 900, color: 'white' }}>{driver?.gforce?.lat?.toFixed?.(2) ?? '—'}</div></div>
                             <div><div className="muted">G-Long</div><div style={{ fontWeight: 900, color: 'white' }}>{driver?.gforce?.long?.toFixed?.(2) ?? '—'}</div></div>
                             <div><div className="muted">G-Vert</div><div style={{ fontWeight: 900, color: 'white' }}>{driver?.gforce?.vert?.toFixed?.(2) ?? '—'}</div></div>
                             <div><div className="muted">G-Total</div><div style={{ fontWeight: 900, color: 'white' }}>{driver?.gforce?.total?.toFixed?.(2) ?? '—'}</div></div>
-                        </div>
+                        </div> */}
 
-                        <div className="pilot-form" style={{ marginTop: 12 }}>
+                        <div className="pilot-form" style={{ marginTop: 12, border: 'none', background: 'none' }}>
                             <div className="section-title" style={{ margin: 0, fontSize: '1.2rem' }}>Tempi di tutti i giri</div>
 
                             <div className="lap-header">
